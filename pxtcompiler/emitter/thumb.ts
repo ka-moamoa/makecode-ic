@@ -49,7 +49,7 @@ namespace ts.pxtc.thumb {
             // $r3 - bits 6:5:4:3
             // $r4 - bits 8:7:6
             // $r5 - bits 10:9:8
-
+            //throw("chris's string");
             this.addEnc("$r0", "R0-7", v => this.inrange(7, v, v))
             this.addEnc("$r1", "R0-7", v => this.inrange(7, v, v << 3))
             this.addEnc("$r2", "R0-15", v => this.inrange(15, v, (v & 7) | ((v & 8) << 4)))

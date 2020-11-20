@@ -934,6 +934,8 @@ namespace ts.pxtc {
         res: CompileResult,
         entryPoint: string): EmitResult {
 
+
+        //throw "HELP I think I found something";
         if (compilerHooks.preBinary)
             compilerHooks.preBinary(program, opts, res)
 
@@ -992,6 +994,9 @@ namespace ts.pxtc {
         bin.res = res;
         bin.options = opts;
         bin.target = opts.target;
+        //console.log(proc)
+        //console.log("BINARY")
+        //console.log(bin)
 
         function reset() {
             bin.reset()
@@ -1078,7 +1083,136 @@ namespace ts.pxtc {
         reset();
         needsUsingInfo = false
         bin.finalPass = true
+
+        console.log("about to do final pass")
+
         emit(rootFunction)
+
+        console.log("2 printing bin procs")
+        console.log(bin)
+
+        for(let prc of bin.procs){
+            console.log(prc.body[0])
+        }
+
+        //insert led::plot(1,1)
+
+        for(let prc of bin.procs){
+            if(prc.body[0]){
+                if(prc.body[0].expr){
+                    if(prc.body[0].expr.data){
+                        if(prc.body[0].expr.data == "led::plot"){
+                            console.log("WE FOUND THE LED.PLOT!!!!!")
+                            var arg1 = new ir.Expr(1,null,1)
+                            var arg2 = new ir.Expr(1,null,1)
+                            var arrgs = new Array(arg1,arg2)
+                            var myExpr = new ir.Expr(3,arrgs,"led::plot")
+                            prc.emitExpr(myExpr)
+                        }
+                    }
+                    
+                }
+            }
+        }
+
+        var variable_list = [""]
+        let save_map = new Map()
+        for(let glb_var of bin.globals){
+            if(glb_var.isUserVariable && glb_var._debugType == "number"){
+                variable_list.push(glb_var.getName())
+            }
+        }
+        console.log("GLOBAL VARIABES")
+        console.log(variable_list)
+
+        //insert serial.writevalue("cheese", cheese)
+        var newExpr = null
+        var hasemitted = false
+        for(let prc of bin.procs){
+            for(let body_statement of prc.body){
+                if(body_statement.expr){
+                    if(body_statement.expr.exprKind == 4){
+                        if(body_statement.expr.args){
+                            if(body_statement.expr.args[0]){
+                                console.log("1")
+                                if(body_statement.expr.args[0].exprKind == 9){
+                                    console.log("2")
+                                    if(body_statement.expr.args[0].data){
+                                        console.log("3")
+                                        if(body_statement.expr.args[0].data.def){
+                                            console.log("4")
+                                            if(body_statement.expr.args[0].data.def.name){
+                                                console.log("5")
+                                                console.log(body_statement.expr.args[0].data.def.name)
+                                                if(variable_list.indexOf(body_statement.expr.args[0].data.def.name.escapedText) > -1){
+                                                    console.log("emitting serial print")
+                                                    
+                                                    //console.log(prc.getName())
+                                                    
+                                                    newExpr = ir.Expr.clone(body_statement.expr)
+                                                    //console.log(newExpr)
+                                                    var newStmt = new ir.Stmt(1, newExpr)
+                                                    save_map.set(body_statement.expr.args[0].data.def.name.escapedText, newStmt)
+                                                    //console.log(newStmt)
+                                                    //prc.emit(newStmt)
+                                                    //hasemitted = true
+                                                
+                                                    //prc.emitExpr(newExpr)
+                                                    
+                                                }
+                                            }
+                                        }
+                                    }
+                                   
+                                }
+                            }
+                        }
+                    } 
+                }
+            }
+        }
+
+        console.log(save_map)
+        for(let prc of bin.procs){
+            console.log(prc.getName())
+            if(prc.getName() == "<main>"){
+                continue
+            }
+            var i =  prc.body.length
+            for(let body_statment of prc.body){
+                if(body_statment.stmtKind == 2){
+                    //means this is a label
+                    console.log(body_statment.lblName)
+                    if(body_statment.lblName.includes("final")){
+                        //if we are at the "final" label of the proc, break
+                        break
+                    }
+                }
+                else if(body_statment.expr){
+                    if(body_statment.expr.args){
+                        if(body_statment.expr.args[0]){
+                            if(body_statment.expr.args[0].data){
+                                if(body_statment.expr.args[0].data.def){
+                                    if(body_statment.expr.args[0].data.def.name){
+                                        if(variable_list.indexOf(body_statment.expr.args[0].data.def.name.escapedText)>-1){
+                                            console.log("About to emit this:")
+                                            console.log(i)
+                                            console.log(body_statment.expr.args[0].data.def.name.escapedText)
+                                            console.log(save_map.get(body_statment.expr.args[0].data.def.name.escapedText))
+                                            prc.emit(save_map.get(body_statment.expr.args[0].data.def.name.escapedText))
+                                            console.log(i)
+                                            console.log("Done emitting")
+                                        }
+                                    }
+                                    
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+            
 
         U.assert(usedWorkList.length == 0)
 
@@ -1096,6 +1230,10 @@ namespace ts.pxtc {
 
         let pass1 = U.cpuUs()
         res.times["pass1"] = pass1 - pass0
+        
+        console.log("3 printing bin procs")
+        //console.log(bin.procs.toString())
+
         catchErrors(rootFunction, finalEmit)
         res.times["passFinal"] = U.cpuUs() - pass1
 
@@ -1107,6 +1245,20 @@ namespace ts.pxtc {
 
         // 12k for decent arcade game
         // res.times["numnodes"] = lastNodeId
+
+        /*
+
+        console.log("res")
+        console.log(res)
+        console.log("end res")
+        console.log("opts")
+        //console.log(opts)
+        console.log("end opts")
+        console.log("program")
+        console.log(program)
+        console.log("end program")
+
+        */
 
         compileOptions = null
 
@@ -1280,6 +1432,9 @@ namespace ts.pxtc {
             bin.writeFile = (fn: string, data: string) => {
                 res.outfiles[fn] = data
             }
+
+            console.log("FINAL printing bin procs")
+            console.log(bin.procs.toString())
 
             for (let proc of bin.procs)
                 if (!proc.cachedJS || proc.inlineBody)
@@ -2880,6 +3035,8 @@ ${lbl}: .short 0xffff
             const info = getFunctionInfo(node)
             let lit: ir.Expr = null
 
+            
+
             if (bin.finalPass) {
                 if (info.alreadyEmitted) {
                     U.assert(info.usedBeforeDecl)
@@ -2915,6 +3072,7 @@ ${lbl}: .short 0xffff
                 if (node.kind == SK.FunctionDeclaration) {
                     info.location = proc.mkLocal(node, getVarInfo(node))
                     proc.emitExpr(info.location.storeDirect(lit))
+                    
                     lit = null
                 }
             } else {
@@ -2930,6 +3088,10 @@ ${lbl}: .short 0xffff
 
             if (existing) {
                 proc = existing
+                //console.log("START")
+                //proc.emitLbl(proc.mkLabel("EMITTING_SOME_LABEL"))
+                //console.log(proc.toString())
+                //console.log("END")
                 proc.reset()
             } else {
                 assert(!bin.finalPass, "!bin.finalPass")
@@ -4613,7 +4775,11 @@ ${lbl}: .short 0xffff
         }
 
         function emitTopLevel(node: Declaration): void {
+            //console.log("Printing the damn node")
+            //console.log(node)
+            //console.log("Done printing the damn node")
             const pinfo = pxtInfo(node)
+            //console.log(pinfo)
             if (pinfo.usedNodes) {
                 needsUsingInfo = false
                 for (let node of U.values(pinfo.usedNodes))
@@ -4636,6 +4802,32 @@ ${lbl}: .short 0xffff
                 emit(node)
                 currUsingContext = null
             }
+            //console.log("AFTER Printing the damn node")
+            //node.pxt.proc.emitLbl(node.pxt.proc.mkLabel("I'm_emitting_this_label"))
+            /*
+            console.log("hello")
+            
+            if(node){
+                console.log("step one")
+                
+                if(node.pxt){
+                    console.log("step two")
+                    if(node.pxt.proc){
+                        console.log("step three")
+                        if(node.pxt.proc.action){
+                            console.log(proc)
+                            console.log("step four")
+                            console.log(node.pxt.proc)
+                        }
+                    }
+                }
+                
+                
+            }
+            
+            */
+            
+            //console.log("AFTER Done printing the damn node")
         }
 
         function emit(node: Node): void {
@@ -4643,6 +4835,8 @@ ${lbl}: .short 0xffff
         }
 
         function emitNodeCore(node: Node): void {
+            console.log("In emitNodeCore")
+            console.log(node.kind.toString())
             switch (node.kind) {
                 case SK.SourceFile:
                     return emitSourceFileNode(<SourceFile>node);

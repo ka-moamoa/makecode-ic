@@ -6,20 +6,20 @@ namespace ts.pxtc.ir {
     let assert = U.assert;
 
     export enum EK {
-        None,
-        NumberLiteral,
-        PointerLiteral,
-        RuntimeCall,
-        ProcCall,
-        SharedRef,
-        SharedDef,
-        FieldAccess,
-        Store,
-        CellRef,
-        Sequence,
-        JmpValue,
-        Nop,
-        InstanceOf,
+        None,               //0
+        NumberLiteral,      //1
+        PointerLiteral,     //2
+        RuntimeCall,        //3
+        ProcCall,           //4
+        SharedRef,          //5
+        SharedDef,          //6
+        FieldAccess,        //7
+        Store,              //8
+        CellRef,            //9
+        Sequence,           //10
+        JmpValue,           //11
+        Nop,                //12
+        InstanceOf,         //13
     }
 
     let currExprId = 0

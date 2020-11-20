@@ -1252,6 +1252,8 @@ __flash_checksums:
         // normally, this would already have been done, but if the main variant
         // is disabled, another variant may be set up
         hexfile.setupFor(opts.target, opts.extinfo || emptyExtInfo())
+        console.log("Printing assembly")
+        console.log(src)
         assembleAndPatch(src, bin, opts, cres)
 
         const otherVariants = opts0.otherMultiVariants || []

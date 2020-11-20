@@ -269,10 +269,17 @@ namespace ts.pxtc {
             res.ast = program
         }
 
+        
+
         if (opts.ast || opts.forceEmit || res.diagnostics.length == 0) {
             const binOutput = compileBinary(program, opts, res, entryPoint);
             res.times["compilebinary"] = U.cpuUs() - emitStart
             res.diagnostics = res.diagnostics.concat(patchUpDiagnostics(binOutput.diagnostics))
+            if(program.getSourceFile("main.ts")){
+                console.log("PRINTING main.ts")
+                console.log(program.getSourceFile("main.ts").getText())
+                console.log("DONE PRINTING main.ts")
+            }
         }
 
         if (res.diagnostics.length == 0)
@@ -285,6 +292,8 @@ namespace ts.pxtc {
 
         res.times["all"] = U.cpuUs() - startTime;
         pxt.tickEvent(`compile`, res.times);
+        console.log("Just did a compile")
+        
         return res
     }
 

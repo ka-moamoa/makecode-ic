@@ -11,7 +11,7 @@
 				"serve",
 				"--rebundle"
 			],
-			"cwd": "${workspaceRoot}/../pxt-microbit",
+			"cwd": "${workspaceRoot}/../IC_pxt-microbit",
 			"runtimeExecutable": null,
 			"runtimeArgs": [
 				"--nolazy"

@@ -101,6 +101,7 @@ namespace pxt {
         files: pxt.Map<string>,
         optionsOrNative?: SimpleCompileOptions | boolean
     ) {
+        pxt.debug("I think I am compiling")
         const options: SimpleCompileOptions =
             typeof optionsOrNative == "boolean" ? { native: optionsOrNative }
                 : optionsOrNative || {}
