@@ -1086,17 +1086,28 @@ namespace ts.pxtc {
 
         console.log("about to do final pass")
 
-        emit(rootFunction)
+        //emit(rootFunction)
 
         console.log("2 printing bin procs")
         console.log(bin)
+
+        console.log("rootfunction")
+        console.log(rootFunction)
+        //let root_copy = rootFunction.parent.text
+        //root_copy = "led.plot(4,4)"
+        //rootFunction.parent.text = root_copy
+
+        emit(rootFunction)
 
         for(let prc of bin.procs){
             console.log(prc.body[0])
         }
 
         //insert led::plot(1,1)
+        //interesting note about the serial.writenumber code injections: it became part of the syntax. Because it copied the existing serial.writenumber at the top, 
+        //without it there would be a compiler error
 
+        /*
         for(let prc of bin.procs){
             if(prc.body[0]){
                 if(prc.body[0].expr){
@@ -1115,50 +1126,123 @@ namespace ts.pxtc {
             }
         }
 
-        var variable_list = [""]
-        let save_map = new Map()
+        */
+
+        var variable_list = []
+        let set_map = new Map()
+        let get_map = new Map()
         for(let glb_var of bin.globals){
             if(glb_var.isUserVariable && glb_var._debugType == "number"){
-                variable_list.push(glb_var.getName())
+                variable_list.push(glb_var)
             }
         }
         console.log("GLOBAL VARIABES")
         console.log(variable_list)
 
-        //insert serial.writevalue("cheese", cheese)
+
+        //build map of var name to bufr.setnumber() and bufr.getnumber()
+        for(let i = 0; i<variable_list.length; i++){
+            //expr0 is the buffer
+            let expr0 = new ir.Expr(9,null,bin.globals[1])
+            //int16le
+            let expr1 = new ir.Expr(1,null,3)
+            //position(i*4)
+            let expr2 = new ir.Expr(1,null,i*2)
+            //expr3 is the variable
+            let expr3 = new ir.Expr(9,null,variable_list[i])
+            //build the total expression
+            let expr_set_final = new ir.Expr(3,[expr0,expr1,expr2,expr3],"BufferMethods::setNumber")
+            let expr_get = new ir.Expr(3,[expr0,expr1,expr2], "BufferMethods::getNumber")
+            let expr_get_final = new ir.Expr(8,[expr3,expr_get],undefined)
+            let set_stmt = new ir.Stmt(1,expr_set_final)
+            let get_stmt = new ir.Stmt(1,expr_get_final)
+            set_map.set(variable_list[i].getName(),set_stmt)
+            get_map.set(variable_list[i].getName(),get_stmt)
+        }
+
+        
+
+        console.log("set_map")
+        console.log(set_map)
+
+        //build serial.writebuffer()
+        let bufr__cell_expr = new ir.Expr(9,null,bin.globals[1])
+        let serial_bufr_expr = new ir.Expr(3,[bufr__cell_expr],"serial::writeBuffer")
+            
+        let serial_bufr_write = new ir.Stmt(1,serial_bufr_expr)
+
+        if(variable_list.length > 0){
+
+        
+            
+
+            //build bufr.fill(0)
+            let expr_0 = new ir.Expr(1,null,0)
+            let expr_neg_1 = new ir.Expr(1,null,-1)
+            let bufr_fill_expr = new ir.Expr(3,[bufr__cell_expr,expr_0,expr_0,expr_neg_1],"BufferMethods::fill")
+            let bufr_fill_stmt = new ir.Stmt(1,bufr_fill_expr)
+
+            //build bufr = serial.readbuffer(8) (8 because bufr is currently 8 bytes, need to make a system that automates size)
+            let expr_8 = new ir.Expr(1,null,8)
+            let bufr_read_expr = new ir.Expr(3,[expr_8],"serial::readBuffer")
+            let encap_bufr_read_expr = new ir.Expr(8,[bufr__cell_expr,bufr_read_expr],undefined)
+            let bufr_read_stmt = new ir.Stmt(1,encap_bufr_read_expr)
+
+            //build if statement (if(start==1))
+            let start_expr = new ir.Expr(9,null,variable_list[0])
+            let expr_1 = new ir.Expr(1,null,1)
+            let numop_expr = new ir.Expr(3,[start_expr,expr_1],"numops::eq")
+            let toBool_expr = new ir.Expr(3,[numop_expr],"numops::toBoolDecr")
+            let if_stmt = new ir.Stmt(3,toBool_expr)
+            if_stmt.jmpMode = 2
+
+            // make the labels
+            let elselbl = bin.procs[0].mkLabel("else")
+            let afterif = bin.procs[0].mkLabel("afterif")
+            if_stmt.lbl = elselbl
+            if_stmt.lblName = elselbl.lblName
+
+
+            // goto afterif
+            let goto_stmt = new ir.Stmt(3,null)
+            goto_stmt.lbl = afterif
+            goto_stmt.lblName = afterif.lblName
+            goto_stmt.jmpMode = 1
+            
+            //emitting
+
+            bin.procs[0].emit(bufr_fill_stmt)
+            bin.procs[0].emit(bufr_read_stmt)
+            bin.procs[0].emit(if_stmt)
+            for(let varib of variable_list){
+                bin.procs[0].emit(get_map.get(varib.getName()))
+            }
+            bin.procs[0].emit(elselbl)
+            bin.procs[0].emit(goto_stmt)
+            bin.procs[0].emit(afterif)
+
+        }
+
+
+        /*
+
         var newExpr = null
         var hasemitted = false
+        //needs to be rewritten for only the "<main>" procedure
         for(let prc of bin.procs){
             for(let body_statement of prc.body){
                 if(body_statement.expr){
-                    if(body_statement.expr.exprKind == 4){
+                    if(body_statement.expr.exprKind == 4){ //this is a proc call
                         if(body_statement.expr.args){
-                            if(body_statement.expr.args[0]){
-                                console.log("1")
-                                if(body_statement.expr.args[0].exprKind == 9){
-                                    console.log("2")
+                            if(body_statement.expr.args[0]){      
+                                if(body_statement.expr.args[0].exprKind == 9){ //this proc call has a cellRef -> has a variable
                                     if(body_statement.expr.args[0].data){
-                                        console.log("3")
                                         if(body_statement.expr.args[0].data.def){
-                                            console.log("4")
                                             if(body_statement.expr.args[0].data.def.name){
-                                                console.log("5")
-                                                console.log(body_statement.expr.args[0].data.def.name)
-                                                if(variable_list.indexOf(body_statement.expr.args[0].data.def.name.escapedText) > -1){
-                                                    console.log("emitting serial print")
-                                                    
-                                                    //console.log(prc.getName())
-                                                    
+                                                if(variable_list.indexOf(body_statement.expr.args[0].data.def.name.escapedText) > -1){ //this proc call with a cell ref is for one of our vars
                                                     newExpr = ir.Expr.clone(body_statement.expr)
-                                                    //console.log(newExpr)
                                                     var newStmt = new ir.Stmt(1, newExpr)
                                                     save_map.set(body_statement.expr.args[0].data.def.name.escapedText, newStmt)
-                                                    //console.log(newStmt)
-                                                    //prc.emit(newStmt)
-                                                    //hasemitted = true
-                                                
-                                                    //prc.emitExpr(newExpr)
-                                                    
                                                 }
                                             }
                                         }
@@ -1172,6 +1256,8 @@ namespace ts.pxtc {
             }
         }
 
+        //these two sets of loops (above and below) can be consoldated
+
         console.log(save_map)
         for(let prc of bin.procs){
             console.log(prc.getName())
@@ -1182,7 +1268,6 @@ namespace ts.pxtc {
             for(let body_statment of prc.body){
                 if(body_statment.stmtKind == 2){
                     //means this is a label
-                    console.log(body_statment.lblName)
                     if(body_statment.lblName.includes("final")){
                         //if we are at the "final" label of the proc, break
                         break
@@ -1194,14 +1279,8 @@ namespace ts.pxtc {
                             if(body_statment.expr.args[0].data){
                                 if(body_statment.expr.args[0].data.def){
                                     if(body_statment.expr.args[0].data.def.name){
-                                        if(variable_list.indexOf(body_statment.expr.args[0].data.def.name.escapedText)>-1){
-                                            console.log("About to emit this:")
-                                            console.log(i)
-                                            console.log(body_statment.expr.args[0].data.def.name.escapedText)
-                                            console.log(save_map.get(body_statment.expr.args[0].data.def.name.escapedText))
+                                        if(variable_list.indexOf(body_statment.expr.args[0].data.def.name.escapedText)>-1){ //this expr rewrites one of our vars, so emit serial.writevalue
                                             prc.emit(save_map.get(body_statment.expr.args[0].data.def.name.escapedText))
-                                            console.log(i)
-                                            console.log("Done emitting")
                                         }
                                     }
                                     
@@ -1212,6 +1291,129 @@ namespace ts.pxtc {
                 }
             }
         }
+
+        
+
+        //inserting buffer.setnumber and serial.writebuffer
+        let main = bin.procs.find(element => element.getName() == "<main>")
+        
+        let bufr_map = new Map()
+        console.log(main)
+        
+
+        
+        
+       
+            
+            for(let body_stmt of main.body){
+                
+                if(body_stmt.expr){
+                    if(body_stmt.expr.data){
+                        if(body_stmt.expr.data == "BufferMethods::setNumber"){
+                            if(body_stmt.expr.args){
+                                
+                                if(body_stmt.expr.args[3]){
+                                    if(body_stmt.expr.args[3].data){
+                                        if(body_stmt.expr.args[3].data.def){
+                                            if(body_stmt.expr.args[3].data.def.name){
+                                                if(body_stmt.expr.args[3].data.def.name.escapedText){
+                                                    bufr_map.set(body_stmt.expr.args[3].data.def.name.escapedText, body_stmt)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                            }
+                        } else if(body_stmt.expr.data == "serial::writeBuffer"){
+                            //serial_bufr_write = body_stmt
+                        }
+                    }
+                }
+                
+               
+            }
+
+            */
+
+            let emit_stack = new Array()
+
+            if(variable_list.length > 0 && variable_list[0].getName() == "start"){
+            
+                for(let prc of bin.procs){
+                    if(prc.getName() == "<main>"){
+                        continue
+                    }
+                    let has_emitted = false
+                    for(let body_statement of prc.body){
+                        if(body_statement.stmtKind == 2){
+                            //means this is a label
+                            if(body_statement.lblName.includes("ret")){
+                                //if we are at the "final" label of the proc, break
+                                if(has_emitted){
+                                    let i
+                                    for(i = 0; i < 3; i++){
+                                        emit_stack.push(prc.body.pop())    
+                                    }
+                                    prc.emit(serial_bufr_write)
+                                    for(i = 3; i > 0; i--){
+                                        prc.emit(emit_stack.pop())
+                                    }
+                                    //put everything back where it was, this essentially makes an "in place" code injection instead of at the end
+                                    //prc.emit(emit_stack.pop())
+                                    
+                                }
+                                break
+                            }
+                        } else if(body_statement.expr){
+                            if(body_statement.expr.args){
+                                if(body_statement.expr.args[0]){
+                                    if(body_statement.expr.args[0].data){
+                                        if(body_statement.expr.args[0].data.def){
+                                            if(body_statement.expr.args[0].data.def.name){
+                                                if(set_map.has(body_statement.expr.args[0].data.def.name.escapedText)){
+                                                    
+                                                    let i = 0
+                                                    
+                                                    for(i = 0; i < 3; i++){
+                                                        emit_stack.push(prc.body.pop())    
+                                                    }
+                                                    
+                                                    prc.emit(set_map.get(body_statement.expr.args[0].data.def.name.escapedText))
+                                                    /*
+                                                    var arg1 = new ir.Expr(1,null,1)
+                                                    var arg2 = new ir.Expr(1,null,1)
+                                                    var arrgs = new Array(arg1,arg2)
+                                                    var myExpr = new ir.Expr(3,arrgs,"led::plot")
+                                                    prc.emitExpr(myExpr)
+                                                    */
+                                                    
+                                                    for(i = 3; i > 0; i--){
+                                                        prc.emit(emit_stack.pop())
+                                                    }
+                                                    
+                                                    has_emitted = true
+                                                    
+                                                }
+                                            }
+                                            
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            
+            
+            }
+
+        
+
+
+
+
+        
             
 
         U.assert(usedWorkList.length == 0)
@@ -4835,8 +5037,6 @@ ${lbl}: .short 0xffff
         }
 
         function emitNodeCore(node: Node): void {
-            console.log("In emitNodeCore")
-            console.log(node.kind.toString())
             switch (node.kind) {
                 case SK.SourceFile:
                     return emitSourceFileNode(<SourceFile>node);
