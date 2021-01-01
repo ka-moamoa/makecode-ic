@@ -1099,9 +1099,7 @@ namespace ts.pxtc {
 
         emit(rootFunction)
 
-        for(let prc of bin.procs){
-            console.log(prc.body[0])
-        }
+       
 
         //insert led::plot(1,1)
         //interesting note about the serial.writenumber code injections: it became part of the syntax. Because it copied the existing serial.writenumber at the top, 
@@ -1131,19 +1129,25 @@ namespace ts.pxtc {
         var variable_list = []
         let set_map = new Map()
         let get_map = new Map()
+        let bufr_cell
         for(let glb_var of bin.globals){
             if(glb_var.isUserVariable && glb_var._debugType == "number"){
                 variable_list.push(glb_var)
+            } else if(glb_var.getName() == "bufr"){
+                bufr_cell = glb_var
             }
         }
+        
         console.log("GLOBAL VARIABES")
         console.log(variable_list)
 
+        // *****Variable list order determined by the order in which the variables are used, NOT THE ORDER IN WHICH THEY ARE DEFINED
+        // *****If a variable is defined but not used, it will be optimized out
 
         //build map of var name to bufr.setnumber() and bufr.getnumber()
         for(let i = 0; i<variable_list.length; i++){
             //expr0 is the buffer
-            let expr0 = new ir.Expr(9,null,bin.globals[1])
+            let expr0 = new ir.Expr(9,null,bufr_cell)
             //int16le
             let expr1 = new ir.Expr(1,null,3)
             //position(i*4)
@@ -1166,7 +1170,7 @@ namespace ts.pxtc {
         console.log(set_map)
 
         //build serial.writebuffer()
-        let bufr__cell_expr = new ir.Expr(9,null,bin.globals[1])
+        let bufr__cell_expr = new ir.Expr(9,null,bufr_cell)
         let serial_bufr_expr = new ir.Expr(3,[bufr__cell_expr],"serial::writeBuffer")
             
         let serial_bufr_write = new ir.Stmt(1,serial_bufr_expr)
@@ -1208,6 +1212,12 @@ namespace ts.pxtc {
             goto_stmt.lbl = afterif
             goto_stmt.lblName = afterif.lblName
             goto_stmt.jmpMode = 1
+
+            //popping
+            let main_stack = new Array()
+            for(let i = 0; i < 4; i++){
+                main_stack.push(bin.procs[0].body.pop())
+            }
             
             //emitting
 
@@ -1220,6 +1230,11 @@ namespace ts.pxtc {
             bin.procs[0].emit(elselbl)
             bin.procs[0].emit(goto_stmt)
             bin.procs[0].emit(afterif)
+
+            //pushing
+            for(let i = 0; i < 4; i++){
+                bin.procs[0].emit(main_stack.pop())
+            }
 
         }
 
@@ -1667,6 +1682,8 @@ namespace ts.pxtc {
 
         function emitGlobal(decl: Declaration) {
             const pinfo = pxtInfo(decl)
+            console.log("Declaration")
+            console.log(decl)
             typeCheckVar(typeOf(decl))
             if (!pinfo.cell)
                 pinfo.cell = new ir.Cell(null, decl, getVarInfo(decl))

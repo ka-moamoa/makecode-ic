@@ -134,6 +134,28 @@ function cachedBuiltinCategories(): pxt.Map<BuiltinCategoryDefinition> {
                         jsDoc: lf("Changes the value of item by 1")
                     }
                 },
+                {
+                    name: "var_start",
+                    snippetName: "start",
+                    snippet: 'let start = 0',
+                    pySnippet: 'start = 0',
+                    snippetOnly: true,
+                    attributes: {
+                        blockId: 'Initialize start to 0',
+                        jsDoc: lf("Initializes the variable start to 0")
+                    }
+                },
+                {
+                    name: "var_bufr",
+                    snippetName: "bufr",
+                    snippet: 'let bufr = pins.createBuffer(8)',
+                    pySnippet: 'bufr = pins.createBuffer(8)',
+                    snippetOnly: true,
+                    attributes: {
+                        blockId: 'Initialize bufr to a buffer of length 8 bytes',
+                        jsDoc: lf("Initializes bufr to a buffer of length 8 bytes")
+                    }
+                }
             ],
             attributes: {
                 callingConvention: ts.pxtc.ir.CallingConvention.Plain,
