@@ -1098,7 +1098,14 @@ namespace ts.pxtc {
         //rootFunction.parent.text = root_copy
 
         emit(rootFunction)
-
+        let addIntermitent = true
+        if(addIntermitent){
+            findModifications()
+            for(let prc of bin.procs){
+                runOnProc(prc)
+            }
+        }
+        
        
 
         //insert led::plot(1,1)
@@ -1490,6 +1497,56 @@ namespace ts.pxtc {
             emittedFiles: undefined,
             emitSkipped: !!opts.noEmit
         }
+
+
+        //my functions
+
+        function findModifications(){
+            for(let glb_var of bin.globals){
+                if(glb_var._debugType == "number"){
+                    let count = 0
+                    for(let prc of bin.procs){
+                        for(let body_statement of prc.body){
+                            if(body_statement.stmtKind == 1){
+                                if(body_statement.expr.args){
+                                    if(body_statement.expr.args[0]){
+                                        if(body_statement.expr.args[0].exprKind == 9){
+                                            if(body_statement.expr.args[0].data == glb_var){
+                                                count++
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if(count > 1){
+                        glb_var.isModified = true
+                        bin.varsToCheckpoint.push(glb_var)
+                    }
+                }
+                
+            }
+        }
+
+        function runOnProc(proc: ir.Procedure){
+
+        }
+
+        function getBufr(){
+            //this will eventually create a bufr from scratch, but for now we find it
+            for(let glb_var of bin.globals){
+                if(glb_var.getName() == "bufr"){
+                    return glb_var
+                } else {
+                    throw "NO BUFFER"
+                }
+            }
+            return null
+        }
+
+        
+        //end my functions
 
         function diag(category: DiagnosticCategory, node: Node, code: number, message: string, arg0?: any, arg1?: any, arg2?: any) {
             diagnostics.add(createDiagnosticForNode(node, <any>{
@@ -5332,6 +5389,9 @@ ${lbl}: .short 0xffff
         otherLiterals: string[] = [];
         codeHelpers: pxt.Map<string> = {};
         lblNo = 0;
+
+        //my stuff
+        varsToCheckpoint: ir.Cell[] = [];
 
         reset() {
             this.lblNo = 0

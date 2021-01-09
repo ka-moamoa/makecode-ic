@@ -303,6 +303,11 @@ namespace ts.pxtc.ir {
         repl: Expr;
         replUses: number;
 
+        //my stuff
+        isModified = false;
+
+        //end my stuff
+
         constructor(public index: number, public def: Declaration, public info: VariableAddInfo) {
             if (def) {
                 if (!isInPxtModules(def)) {
@@ -530,6 +535,26 @@ namespace ts.pxtc.ir {
         inlineBody: ir.Expr;
         cachedJS: string = null;
         usingCtx: PxtNode = null;
+
+        //my stuff
+
+        emitInPlace(target: number, insert: Stmt){
+            let emit_stack = []
+            for(let i = 0; i < target; i++){
+                emit_stack.push(this.body.pop())
+            }
+            this.emit(insert)
+            for(let i = 0; i < target; i++){
+                this.emit(emit_stack.pop())
+            }
+        }
+
+        emitBeforeRet(insert: Stmt){
+            this.emitInPlace(4, insert)
+        }
+
+
+        // end my stuff
 
         reset() {
             this.body = []
