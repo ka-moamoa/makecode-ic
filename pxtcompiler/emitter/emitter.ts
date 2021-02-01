@@ -1098,7 +1098,15 @@ namespace ts.pxtc {
         //rootFunction.parent.text = root_copy
 
         emit(rootFunction)
-        let addIntermitent = true
+        let addIntermitent
+        if(bin.globals){
+            if(bin.globals[2]){
+                if(bin.globals[2].getName() == "start"){
+                    addIntermitent = true
+                }
+            }
+            
+        }
         if(addIntermitent){
             codeAnalysis()
             setup()
@@ -1339,6 +1347,23 @@ namespace ts.pxtc {
             }
         }
 
+        function emitInPlace(proc: ir.Procedure, target: number, insert: ir.Stmt){
+            let emitStack = new Array()
+            let i
+            for(i = 0; i < target; i++){
+                emitStack.push(proc.body.pop())
+            }
+            console.log(proc.body)
+            proc.emit(insert)
+            for(i = 0; i < target; i++){
+                proc.emit(emitStack.pop())
+            }
+        }
+
+        function emitBeforeRet(proc: ir.Procedure, insert: ir.Stmt){
+            emitInPlace(proc,4,insert)
+        }
+
         function runOnProc(proc: ir.Procedure){
             let emit_stack = new Array()
 
@@ -1348,17 +1373,21 @@ namespace ts.pxtc {
                 if(proc.getName() == "<main>"){
                     for(let mainStmt of bin.mainStmts){
                         //need to write emitblock and emitblockbeforeret in ir.ts
-                        proc.emitBeforeRet(mainStmt)
+                        emitInPlace(proc,6, mainStmt)
                     }
-                } else {
+                } 
+                else {
                     let has_emitted = false
                     for(let body_statement of proc.body){
                         if(body_statement.stmtKind == 2){
                             if(body_statement.lblName.includes("ret")){
                                 if(has_emitted){
-                                    proc.emitBeforeRet(bin.bufrWriteStmt)
+                                    console.log(bin.bufrWriteStmt)
+                                    emitBeforeRet(proc,bin.bufrWriteStmt)
+                                    
                                 }
                             }
+                            break
                         } else if(body_statement.expr){
                             if(body_statement.expr.args){
                                 if(body_statement.expr.args[0]){
@@ -1367,7 +1396,7 @@ namespace ts.pxtc {
                                             if(body_statement.expr.args[0].data.def.name){
                                                 if(bin.setMap.has(body_statement.expr.args[0].data.def.name.escapedText)){
                                                     
-                                                    proc.emitBeforeRet(bin.setMap.get(body_statement.expr.args[0].data.def.name.escapedText))
+                                                    emitBeforeRet(proc,bin.setMap.get(body_statement.expr.args[0].data.def.name.escapedText))
                                                     has_emitted = true
                                                     
                                                 }
@@ -1393,9 +1422,11 @@ namespace ts.pxtc {
             for(let glb_var of bin.globals){
                 if(glb_var.getName() == "bufr"){
                     bin.saveBufferCell = glb_var
-                } else {
-                    throw "NO BUFFER"
-                }
+                } 
+            }
+            if(bin.saveBufferCell == null){
+                console.log("THERE IS NO BUFFER")
+                throw "NO BUFFER"
             }
         }
 
@@ -1593,8 +1624,8 @@ namespace ts.pxtc {
 
         function emitGlobal(decl: Declaration) {
             const pinfo = pxtInfo(decl)
-            console.log("Declaration")
-            console.log(decl)
+            //console.log("Declaration")
+            //console.log(decl)
             typeCheckVar(typeOf(decl))
             if (!pinfo.cell)
                 pinfo.cell = new ir.Cell(null, decl, getVarInfo(decl))

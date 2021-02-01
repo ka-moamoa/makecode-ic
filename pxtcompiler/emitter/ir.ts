@@ -538,14 +538,29 @@ namespace ts.pxtc.ir {
 
         //my stuff
 
+        //cancer that doesnt work
+
+        /*
         emitInPlace(target: number, insert: Stmt){
-            let emit_stack = []
+            let emit_stack = new Array()
+            let tempbody = this.body
+            console.log(this.body)
+            console.log(target)
             for(let i = 0; i < target; i++){
-                emit_stack.push(this.body.pop())
+                let tempStmt = tempbody.pop()
+                console.log(tempStmt)
+                emit_stack.push(tempStmt)
+                console.log(tempbody)
             }
-            this.emit(insert)
-            for(let i = 0; i < target; i++){
-                this.emit(emit_stack.pop())
+            console.log(insert)
+            console.log(emit_stack)
+            console.log(tempbody)
+            tempbody.push(insert)
+            
+            //this.emit(insert)
+            for(let j = 0; j < target; j++){
+                //console.log(j)
+                tempbody.push(emit_stack.pop())
             }
         }
 
@@ -553,6 +568,7 @@ namespace ts.pxtc.ir {
             this.emitInPlace(4, insert)
         }
 
+        */
 
         // end my stuff
 
