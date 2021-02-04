@@ -1098,14 +1098,11 @@ namespace ts.pxtc {
         //rootFunction.parent.text = root_copy
 
         emit(rootFunction)
-        let addIntermitent
-        if(bin.globals){
-            if(bin.globals[2]){
-                if(bin.globals[2].getName() == "start"){
-                    addIntermitent = true
-                }
+        let addIntermitent = false
+        for(let glb_var of bin.globals){
+            if(glb_var.getName() == "start"){
+                addIntermitent = true
             }
-            
         }
         if(addIntermitent){
             codeAnalysis()
@@ -1368,7 +1365,16 @@ namespace ts.pxtc {
             let emit_stack = new Array()
 
             //need to find a way to make sure only the user program is transformmed
-            if(bin.varsToCheckpoint[0].getName() == "start"){
+            let applytoprog = false
+            for(let checkvar of bin.varsToCheckpoint){
+                if(checkvar.getName() == "start"){
+                    console.log("START FOUND")
+                    applytoprog = true
+                }
+            }
+
+
+            if(applytoprog){
             
                 if(proc.getName() == "<main>"){
                     for(let mainStmt of bin.mainStmts){
