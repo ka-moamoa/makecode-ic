@@ -1255,13 +1255,66 @@ namespace ts.pxtc {
             bin.setMap = set_map
             bin.getMap = get_map
 
-             //build serial.writebuffer()
-            let bufr__cell_expr = new ir.Expr(9,null,bin.saveBufferCell)
-            let serial_bufr_expr = new ir.Expr(3,[bufr__cell_expr],"serial::writeBuffer")
-                
-            let serial_bufr_write = new ir.Stmt(1,serial_bufr_expr)
+            let fram_begin_index
+            let fram_write_index
+            let fram_read_index
 
-            bin.bufrWriteStmt = serial_bufr_write
+            //this is probably the issue
+
+            for(let i = 0; i < bin.procs.length; i++){
+                if(bin.procs[i].getName() == "begin"){
+                    console.log("found index begin")
+                    console.log(bin.procs[i])
+                    fram_begin_index = i
+                }
+                if(bin.procs[i].getName() == "write_buffer"){
+                    console.log("found index write buffer")
+                    console.log(bin.procs[i])
+                    fram_write_index = i
+                }
+                if(bin.procs[i].getName() == "read_buffer"){
+                    console.log("found index read buffer")
+                    console.log(bin.procs[i])
+                    fram_read_index = i
+                }
+            }
+
+            //build fram.begin()
+            let fram_begin_procid: ir.ProcId = {
+                proc: bin.procs[fram_begin_index],
+                callLocationIndex: 99,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_begin_expr = new ir.Expr(4,[], fram_begin_procid)
+            let fram_begin_stmt = new ir.Stmt(1,fram_begin_expr)
+
+            console.log(fram_begin_stmt)
+
+            //build fram.write_buffer()
+            let bufr__cell_expr = new ir.Expr(9,null,bin.saveBufferCell)
+            let fram_addr_expr = new ir.Expr(1,null,1)
+            let fram_write_buffer_procid: ir.ProcId = {
+                proc: bin.procs[fram_write_index],
+                callLocationIndex: 14,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_bufr_write_expr = new ir.Expr(4,[fram_addr_expr, bufr__cell_expr],fram_write_buffer_procid)
+                
+            let fram_bufr_write = new ir.Stmt(1,fram_bufr_write_expr)
+
+            bin.bufrWriteStmt = fram_bufr_write
+
+            console.log(fram_bufr_write)
+
+              //build serial.writebuffer()
+              //let bufr__cell_expr = new ir.Expr(9,null,bin.saveBufferCell)
+              let serial_bufr_expr = new ir.Expr(3,[bufr__cell_expr],"serial::writeBuffer")
+                  
+              let serial_bufr_write = new ir.Stmt(1,serial_bufr_expr)
+  
+              //bin.bufrWriteStmt = serial_bufr_write
 
             //build bufr.fill(0)
             let expr_0 = new ir.Expr(1,null,0)
@@ -1271,10 +1324,22 @@ namespace ts.pxtc {
             
 
             //build bufr = serial.readbuffer(8) (8 because bufr is currently 8 bytes, need to make a system that automates size)
-            let expr_8 = new ir.Expr(1,null,8)
-            let bufr_read_expr = new ir.Expr(3,[expr_8],"serial::readBuffer")
-            let encap_bufr_read_expr = new ir.Expr(8,[bufr__cell_expr,bufr_read_expr],undefined)
-            let bufr_read_stmt = new ir.Stmt(1,encap_bufr_read_expr)
+            //let expr_8 = new ir.Expr(1,null,8)
+            //let bufr_read_expr = new ir.Expr(3,[expr_8],"serial::readBuffer")
+            //let encap_bufr_read_expr = new ir.Expr(8,[bufr__cell_expr,bufr_read_expr],undefined)
+            //let bufr_read_stmt = new ir.Stmt(1,encap_bufr_read_expr)
+
+            //build bufr = fram.readbuffer
+            let length_expr = new ir.Expr(3, [bufr__cell_expr],"BufferMethods::length")
+            let fram_read_buffer_procid: ir.ProcId = {
+                proc: bin.procs[fram_read_index],
+                callLocationIndex: 30,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_read_expr = new ir.Expr(4,[fram_addr_expr,length_expr],fram_read_buffer_procid)
+            let bufr_fram_assign_expr = new ir.Expr(8,[bufr__cell_expr,fram_read_expr],null)
+            let fram_read_stmt = new ir.Stmt(1,bufr_fram_assign_expr)
            
 
             //build if statement (if(start==1))
@@ -1299,8 +1364,9 @@ namespace ts.pxtc {
             goto_stmt.lblName = afterif.lblName
             goto_stmt.jmpMode = 1
 
+            bin.mainStmts.push(fram_begin_stmt)
             bin.mainStmts.push(bufr_fill_stmt)
-            bin.mainStmts.push(bufr_read_stmt)
+            bin.mainStmts.push(fram_read_stmt)
             bin.mainStmts.push(if_stmt)
             for(let varib of bin.varsToCheckpoint){
                 bin.mainStmts.push(get_map.get(varib.getName()))
@@ -1350,7 +1416,6 @@ namespace ts.pxtc {
             for(i = 0; i < target; i++){
                 emitStack.push(proc.body.pop())
             }
-            console.log(proc.body)
             proc.emit(insert)
             for(i = 0; i < target; i++){
                 proc.emit(emitStack.pop())
@@ -1368,7 +1433,6 @@ namespace ts.pxtc {
             let applytoprog = false
             for(let checkvar of bin.varsToCheckpoint){
                 if(checkvar.getName() == "start"){
-                    console.log("START FOUND")
                     applytoprog = true
                 }
             }
