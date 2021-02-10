@@ -107,6 +107,7 @@ namespace ts.pxtc {
 
     export function storeGeneratedFiles(opts: CompileOptions, res: CompileResult) {
         // save files first, in case we generated some .ts files that fail to compile
+        
         for (let f of opts.generatedFiles || [])
             res.outfiles[f] = opts.fileSystem[f]
     }
@@ -122,6 +123,8 @@ namespace ts.pxtc {
         }
 
         storeGeneratedFiles(opts, res)
+        console.log("res files and procs")
+        console.log(res)
 
         if (!opts.sourceFiles)
             opts.sourceFiles = Object.keys(opts.fileSystem)
@@ -140,6 +143,9 @@ namespace ts.pxtc {
         }
 
         res.times["conversions"] = U.cpuUs() - startTime
+
+        console.log("res files and procs2")
+        console.log(res)
 
         return res
     }
@@ -210,6 +216,7 @@ namespace ts.pxtc {
     export let compilerHooks: CompilerHooks
 
     export function compile(opts: CompileOptions, service?: LanguageService) {
+        
         if (!compilerHooks) {
             // run the extension at most once
             compilerHooks = {}
@@ -225,18 +232,34 @@ namespace ts.pxtc {
 
         let startTime = U.cpuUs()
         let res = mkCompileResult()
+        
+        let wtf = mkCompileResult()
+
+        console.log("before?")
+        console.log(res)
+        console.log(wtf)
 
         let program: Program
 
         if (service) {
+            
             storeGeneratedFiles(opts, res)
             program = service.getProgram()
+            console.log("what is going on?")
+            console.log(res)
+            
         } else {
             runConversionsAndStoreResults(opts, res)
+            console.log("is this where res is changed?")
+            console.log(res)
             if (res.diagnostics.length > 0)
+                
                 return res;
             program = buildProgram(opts, res)
         }
+
+        console.log("is this where res is changed?")
+        console.log(res)
 
         const entryPoint = opts.sourceFiles.filter(f => U.endsWith(f, ".ts")).pop().replace(/.*\//, "")
 

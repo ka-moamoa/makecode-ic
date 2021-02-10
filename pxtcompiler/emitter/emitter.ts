@@ -934,6 +934,13 @@ namespace ts.pxtc {
         res: CompileResult,
         entryPoint: string): EmitResult {
 
+        console.log("Program")
+        console.log(program)
+        console.log("opts")
+        console.log(opts)
+        console.log("res")
+        console.log(res)
+
 
         //throw "HELP I think I found something";
         if (compilerHooks.preBinary)
@@ -955,6 +962,13 @@ namespace ts.pxtc {
         let pendingFunctionDefinitions: FunctionDeclaration[] = []
 
         currNodeWave++
+
+        console.log("Program")
+        console.log(program)
+        console.log("opts")
+        console.log(opts)
+        console.log("res")
+        console.log(res)
 
         if (opts.target.isNative) {
             if (!opts.extinfo || !opts.extinfo.hexinfo) {
@@ -995,8 +1009,8 @@ namespace ts.pxtc {
         bin.options = opts;
         bin.target = opts.target;
         //console.log(proc)
-        //console.log("BINARY")
-        //console.log(bin)
+        console.log(" initial BINARY")
+        console.log(bin)
 
         function reset() {
             bin.reset()
@@ -1024,9 +1038,16 @@ namespace ts.pxtc {
 
             const main = files.find(sf => sf.fileName === "main.ts");
 
+            //might break everything
+            const custom = files.find(sf => sf.fileName === "custom.ts")
+            
+
             if (main) {
                 files = files.filter(sf => sf.fileName !== "main.ts");
+                
                 files.push(main);
+                console.log("files")
+                console.log(files)
             }
 
             files.forEach(f => {
@@ -1034,6 +1055,8 @@ namespace ts.pxtc {
                     allStmts.push(s)
                 });
             });
+            console.log("all stmts")
+            //console.log(allStmts)
         }
 
         let mainSrcFile = program.getSourceFiles().filter(f => Util.endsWith(f.fileName, entryPoint))[0];
@@ -1237,9 +1260,9 @@ namespace ts.pxtc {
                 //expr0 is the buffer
                 let expr0 = new ir.Expr(9,null,bin.saveBufferCell)
                 //int16le
-                let expr1 = new ir.Expr(1,null,3)
+                let expr1 = new ir.Expr(1,null,10)
                 //position(i*4)
-                let expr2 = new ir.Expr(1,null,i*2)
+                let expr2 = new ir.Expr(1,null,i*4)
                 //expr3 is the variable
                 let expr3 = new ir.Expr(9,null,bin.varsToCheckpoint[i])
                 //build the total expression
@@ -1259,7 +1282,7 @@ namespace ts.pxtc {
             let fram_write_index
             let fram_read_index
 
-            //this is probably the issue
+            
 
             for(let i = 0; i < bin.procs.length; i++){
                 if(bin.procs[i].getName() == "begin"){
@@ -1293,7 +1316,7 @@ namespace ts.pxtc {
 
             //build fram.write_buffer()
             let bufr__cell_expr = new ir.Expr(9,null,bin.saveBufferCell)
-            let fram_addr_expr = new ir.Expr(1,null,1)
+            let fram_addr_expr = new ir.Expr(1,null,valueEncode(1))
             let fram_write_buffer_procid: ir.ProcId = {
                 proc: bin.procs[fram_write_index],
                 callLocationIndex: 14,
@@ -1330,13 +1353,22 @@ namespace ts.pxtc {
             //let bufr_read_stmt = new ir.Stmt(1,encap_bufr_read_expr)
 
             //build bufr = fram.readbuffer
-            let length_expr = new ir.Expr(3, [bufr__cell_expr],"BufferMethods::length")
+            let length_expr = new ir.Expr(1, [],valueEncode((bin.varsToCheckpoint.length * 4)))
+            /*
+            let convinfos: ir.ConvInfo[] = []
+            let length_mask: ir.MaskInfo = {
+                refMask: 1,
+                conversions: convinfos
+            }
+            length_expr.mask = length_mask
+            */
             let fram_read_buffer_procid: ir.ProcId = {
                 proc: bin.procs[fram_read_index],
                 callLocationIndex: 30,
                 virtualIndex: null,
                 ifaceIndex: null
             }
+            
             let fram_read_expr = new ir.Expr(4,[fram_addr_expr,length_expr],fram_read_buffer_procid)
             let bufr_fram_assign_expr = new ir.Expr(8,[bufr__cell_expr,fram_read_expr],null)
             let fram_read_stmt = new ir.Stmt(1,bufr_fram_assign_expr)
@@ -1344,7 +1376,7 @@ namespace ts.pxtc {
 
             //build if statement (if(start==1))
             let start_expr = new ir.Expr(9,null,bin.varsToCheckpoint[0])
-            let expr_1 = new ir.Expr(1,null,1)
+            let expr_1 = new ir.Expr(1,null,valueEncode(1))
             let numop_expr = new ir.Expr(3,[start_expr,expr_1],"numops::eq")
             let toBool_expr = new ir.Expr(3,[numop_expr],"numops::toBoolDecr")
             let if_stmt = new ir.Stmt(3,toBool_expr)
@@ -1364,12 +1396,15 @@ namespace ts.pxtc {
             goto_stmt.lblName = afterif.lblName
             goto_stmt.jmpMode = 1
 
-            bin.mainStmts.push(fram_begin_stmt)
-            bin.mainStmts.push(bufr_fill_stmt)
+            //bin.mainStmts.push(fram_begin_stmt)
+            //bin.mainStmts.push(bufr_fill_stmt)
             bin.mainStmts.push(fram_read_stmt)
+            bin.mainStmts.push(get_map.get("start"))
             bin.mainStmts.push(if_stmt)
             for(let varib of bin.varsToCheckpoint){
-                bin.mainStmts.push(get_map.get(varib.getName()))
+                if(varib.getName() != "start"){
+                    bin.mainStmts.push(get_map.get(varib.getName()))
+                }
             }
             bin.mainStmts.push(elselbl)
             bin.mainStmts.push(goto_stmt)
@@ -1377,6 +1412,10 @@ namespace ts.pxtc {
  
 
 
+        }
+
+        function valueEncode(input: number){
+            return (input * 2) + 1
         }
 
         function findModifications(){
@@ -1443,7 +1482,7 @@ namespace ts.pxtc {
                 if(proc.getName() == "<main>"){
                     for(let mainStmt of bin.mainStmts){
                         //need to write emitblock and emitblockbeforeret in ir.ts
-                        emitInPlace(proc,6, mainStmt)
+                        emitInPlace(proc,7, mainStmt)
                     }
                 } 
                 else {
