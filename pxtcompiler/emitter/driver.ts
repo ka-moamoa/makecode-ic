@@ -235,9 +235,9 @@ namespace ts.pxtc {
         
         let wtf = mkCompileResult()
 
-        console.log("before?")
-        console.log(res)
-        console.log(wtf)
+        //console.log("before?")
+        //console.log(res)
+        //console.log(wtf)
 
         let program: Program
 
@@ -245,21 +245,21 @@ namespace ts.pxtc {
             
             storeGeneratedFiles(opts, res)
             program = service.getProgram()
-            console.log("what is going on?")
-            console.log(res)
+            //console.log("what is going on?")
+            //console.log(res)
             
         } else {
             runConversionsAndStoreResults(opts, res)
-            console.log("is this where res is changed?")
-            console.log(res)
+            //console.log("is this where res is changed?")
+            //console.log(res)
             if (res.diagnostics.length > 0)
                 
                 return res;
             program = buildProgram(opts, res)
         }
 
-        console.log("is this where res is changed?")
-        console.log(res)
+        //console.log("is this where res is changed?")
+        //console.log(res)
 
         const entryPoint = opts.sourceFiles.filter(f => U.endsWith(f, ".ts")).pop().replace(/.*\//, "")
 

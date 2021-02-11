@@ -1271,8 +1271,8 @@ namespace ts.pxtc.service {
         const prevFS = U.flatClone(host.opts.fileSystem);
         
         let res = runConversionsAndStoreResults(host.opts);
-        console.log("after runconvandstoreres")
-        console.log(res)
+        //console.log("after runconvandstoreres")
+        //console.log(res)
         if (res && res.globalNames) {
             lastGlobalNames = res.globalNames
         }
@@ -1294,14 +1294,14 @@ namespace ts.pxtc.service {
                 else if (host.pxtModulesOK == "js" && (!host.opts.breakpoints || host.opts.justMyCode))
                     host.opts.skipPxtModulesEmit = true
             }
-            console.log("before compile")
-            console.log(res)
+            //console.log("before compile")
+            //console.log(res)
             let ts2asm = compile(host.opts, service)
-            console.log("ts2asm")
-            console.log(ts2asm)
+            //console.log("ts2asm")
+            //console.log(ts2asm)
             res = { sourceMap: res.sourceMap, ...ts2asm }
-            console.log("after compile")
-            console.log(res)
+            //console.log("after compile")
+            //console.log(res)
             if (res.needsFullRecompile) {
                 pxt.log("trigering full recompile")
                 pxt.tickEvent("compile.fullrecompile")

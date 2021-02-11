@@ -1244,7 +1244,28 @@ namespace ts.pxtc {
 
         function codeTransformations(){
             for(let prc of bin.procs){
-                runOnProc(prc)
+                
+                
+                if(prc.info){
+                   
+                    if(prc.info.decl){
+                       
+                        if(prc.info.decl.parent){
+                            
+                            if(prc.info.decl.parent.getSourceFile()){
+                              
+                                if(prc.info.decl.parent.getSourceFile().fileName == "main.ts"){
+                                    runOnProc(prc)
+                                }
+                            }
+                            
+                            
+                        }
+                    }
+                }
+                
+               
+                
             }
         }
 
@@ -1375,7 +1396,13 @@ namespace ts.pxtc {
            
 
             //build if statement (if(start==1))
-            let start_expr = new ir.Expr(9,null,bin.varsToCheckpoint[0])
+            let startvar
+            for(let i = 0; i < bin.varsToCheckpoint.length; i++){
+                if(bin.varsToCheckpoint[i].getName() == "start"){
+                    startvar = bin.varsToCheckpoint[i]
+                }
+            }
+            let start_expr = new ir.Expr(9,null,startvar)
             let expr_1 = new ir.Expr(1,null,valueEncode(1))
             let numop_expr = new ir.Expr(3,[start_expr,expr_1],"numops::eq")
             let toBool_expr = new ir.Expr(3,[numop_expr],"numops::toBoolDecr")
@@ -1451,22 +1478,135 @@ namespace ts.pxtc {
 
         function emitInPlace(proc: ir.Procedure, target: number, insert: ir.Stmt){
             let emitStack = new Array()
-            let i
-            for(i = 0; i < target; i++){
+            let i = proc.body.length
+            let j = proc.body.length
+            for(i; i > target; i--){
                 emitStack.push(proc.body.pop())
             }
             proc.emit(insert)
-            for(i = 0; i < target; i++){
+            
+            while(emitStack.length > 0){
                 proc.emit(emitStack.pop())
             }
         }
 
         function emitBeforeRet(proc: ir.Procedure, insert: ir.Stmt){
-            emitInPlace(proc,4,insert)
+            emitInPlace(proc,proc.body.length-4,insert)
+        }
+
+        function emitBlockInPlace(proc: ir.Procedure, target: number, insert:ir.Stmt[]){
+            let emitStack = new Array()
+            let i = proc.body.length
+            for(i; i > target; i--){
+                emitStack.push(proc.body.pop())
+            }
+            for(let p = 0; p < insert.length; p++){
+                console.log(insert[p])
+                proc.emit(insert[p])
+            }
+            
+            while(emitStack.length > 0){
+                proc.emit(emitStack.pop())
+            }
+        }
+
+        function mainBoilerplate(proc: ir.Procedure, start:number, end:number){
+            //boilerplate = 3
+            //num of vars = 6
+            //fram stuff = 3
+            //total = 12
+            let i
+        
+            let emittedmainstmts = false
+            for(i = start; i < end; i++){
+                
+                if(proc.body[i].stmtKind == 2){
+                    console.log("found lbl in main at: "+ i)
+                    emitMainStmts(proc,i)
+                    emittedmainstmts = true
+                    break
+                }
+                else if(proc.body[i].expr){
+                    if(proc.body[i].expr.exprKind == 3 /*|| proc.body[i].expr.exprKind == 4 */){
+                        console.log("found proc or runtime call in main at: "+ i)
+                        emitMainStmts(proc,i)
+                        emittedmainstmts = true
+                        break
+                    }
+                }
+                
+                
+            }
+            
+
+            return i+bin.mainStmts.length
+        }
+
+        function Checkpoint(proc: ir.Procedure, start:number, end:number){
+            let emit_stack = new Array()
+            let emit_set = new Set()
+            for(let i = start; i < end; i++){
+                if(proc.body[i].stmtKind == 2){
+                    console.log("lbl found in Checkpoint: "+proc.body[i].lblName)
+                    if(proc.body[i].lblName.includes("fortop")){
+
+                    } else if(proc.body[i].lblName.includes("cont")){
+                        let strlen = proc.body[i].lblName.length
+                        let idstart = proc.body[i].lblName.lastIndexOf(".")
+                        let lblId = proc.body[i].lblName.substring(idstart,strlen)
+                        console.log("this is the lblid!")
+                        console.log(lblId)
+                        
+                        i++
+                        let newstart = i
+                        while(1){
+                            if(proc.body[i].stmtKind == 2){
+                                if(proc.body[i].lblName.includes("brk"+lblId)){
+                                    break;
+                                }
+                            }
+                            i++
+                        }
+                        let numEmitted = Checkpoint(proc,newstart,i-1)
+                        end+=numEmitted
+                        i+=numEmitted
+                    }
+                } else if(proc.body[i].expr){
+                    if(proc.body[i].expr.args){
+                        if(proc.body[i].expr.args[0]){
+                            if(proc.body[i].expr.args[0].data){
+                                if(proc.body[i].expr.args[0].data.def){
+                                    if(proc.body[i].expr.args[0].data.def.name){
+                                        if(bin.setMap.has(proc.body[i].expr.args[0].data.def.name.escapedText)){
+                                            if(!emit_set.has(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))){
+                                                emit_stack.push(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
+                                                emit_set.add(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
+                                            }
+                                            
+                                        }
+                                    }
+                                    
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if(emit_stack.length > 0){
+                emit_stack.push(bin.bufrWriteStmt)
+                emitBlockInPlace(proc,end,emit_stack)
+                return emit_stack.length
+            } else {
+                return 0
+            }
+        }
+
+        function emitMainStmts(proc: ir.Procedure, target:number){
+            //weird undefined error when I passed bin.mainstmts to emitBlockInPlace
+            emitBlockInPlace(proc,target,bin.mainStmts)
         }
 
         function runOnProc(proc: ir.Procedure){
-            let emit_stack = new Array()
 
             //need to find a way to make sure only the user program is transformmed
             let applytoprog = false
@@ -1475,37 +1615,84 @@ namespace ts.pxtc {
                     applytoprog = true
                 }
             }
+            if(proc.getName() == "<main>"){
+                let mainstart = mainBoilerplate(proc,0,proc.body.length)
+                console.log("mainstart = "+mainstart)
+                Checkpoint(proc, mainstart, proc.body.length-4)
+            } else {
+                Checkpoint(proc,0,proc.body.length-4)
+            }
+            
 
+            /*
 
             if(applytoprog){
             
                 if(proc.getName() == "<main>"){
                     for(let mainStmt of bin.mainStmts){
                         //need to write emitblock and emitblockbeforeret in ir.ts
-                        emitInPlace(proc,7, mainStmt)
+                        emitInPlace(proc,proc.body.length-7, mainStmt)
                     }
                 } 
                 else {
                     let has_emitted = false
-                    for(let body_statement of proc.body){
-                        if(body_statement.stmtKind == 2){
-                            if(body_statement.lblName.includes("ret")){
+                    for(let i = 0; i < proc.body.length; i++){
+                        if(proc.body[i].stmtKind == 2){
+                            if(proc.body[i].lblName.includes("ret")){
+                                //at the end of the proc
                                 if(has_emitted){
                                     console.log(bin.bufrWriteStmt)
-                                    emitBeforeRet(proc,bin.bufrWriteStmt)
+                                    //emitBeforeRet(proc,bin.bufrWriteStmt)
                                     
                                 }
+                                break
                             }
-                            break
-                        } else if(body_statement.expr){
-                            if(body_statement.expr.args){
-                                if(body_statement.expr.args[0]){
-                                    if(body_statement.expr.args[0].data){
-                                        if(body_statement.expr.args[0].data.def){
-                                            if(body_statement.expr.args[0].data.def.name){
-                                                if(bin.setMap.has(body_statement.expr.args[0].data.def.name.escapedText)){
+                            
+                            else if(proc.body[i].lblName.includes("cont")){
+                                //while loop
+                                let loop_emits = new Array()
+                                while(1){
+                                    if(proc.body[i].stmtKind == 2){
+                                        if(proc.body[i].lblName.includes("brk")){
+                                            break
+                                        }
+                                    } else if(proc.body[i].expr){
+                                        if(proc.body[i].expr.args){
+                                            if(proc.body[i].expr.args[0]){
+                                                if(proc.body[i].expr.args[0].data){
+                                                    if(proc.body[i].expr.args[0].data.def){
+                                                        if(proc.body[i].expr.args[0].data.def.name){
+                                                            if(bin.setMap.has(proc.body[i].expr.args[0].data.def.name.escapedText)){
+                                                                loop_emits.push(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
+                                                            }
+                                                        }
+                                                        
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    i++
+                                }
+                                let emit_before_goto_offset = (proc.body.length - i) - 2
+                                for(let p = 0; p < loop_emits.length; p++){
+                                    emitInPlace(proc,emit_before_goto_offset,loop_emits[p])
+                                }
+                            }
+                            else if(proc.body[i].lblName.includes("fortop")){
+                                //for loop
+                            }
+                            
+                            
+                        } else if(proc.body[i].expr){
+                            if(proc.body[i].expr.args){
+                                if(proc.body[i].expr.args[0]){
+                                    if(proc.body[i].expr.args[0].data){
+                                        if(proc.body[i].expr.args[0].data.def){
+                                            if(proc.body[i].expr.args[0].data.def.name){
+                                                if(bin.setMap.has(proc.body[i].expr.args[0].data.def.name.escapedText)){
                                                     
-                                                    emitBeforeRet(proc,bin.setMap.get(body_statement.expr.args[0].data.def.name.escapedText))
+                                                    //emitBeforeRet(proc,bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
                                                     has_emitted = true
                                                     
                                                 }
@@ -1523,6 +1710,7 @@ namespace ts.pxtc {
             
             
             }
+            */
 
         }
 
