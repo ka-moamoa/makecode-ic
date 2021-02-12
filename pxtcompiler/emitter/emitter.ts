@@ -1123,7 +1123,7 @@ namespace ts.pxtc {
         emit(rootFunction)
         let addIntermitent = false
         for(let glb_var of bin.globals){
-            if(glb_var.getName() == "start"){
+            if(glb_var.getName() == "intermittent"){
                 addIntermitent = true
             }
         }
@@ -1280,7 +1280,7 @@ namespace ts.pxtc {
             for(let i = 0; i<bin.varsToCheckpoint.length; i++){
                 //expr0 is the buffer
                 let expr0 = new ir.Expr(9,null,bin.saveBufferCell)
-                //int16le
+                //int32be
                 let expr1 = new ir.Expr(1,null,10)
                 //position(i*4)
                 let expr2 = new ir.Expr(1,null,i*4)
@@ -1322,6 +1322,9 @@ namespace ts.pxtc {
                     fram_read_index = i
                 }
             }
+
+           
+
 
             //build fram.begin()
             let fram_begin_procid: ir.ProcId = {
@@ -1374,7 +1377,7 @@ namespace ts.pxtc {
             //let bufr_read_stmt = new ir.Stmt(1,encap_bufr_read_expr)
 
             //build bufr = fram.readbuffer
-            let length_expr = new ir.Expr(1, [],valueEncode((bin.varsToCheckpoint.length * 4)))
+            let length_expr = new ir.Expr(1, [],valueEncode((bin.varsToCheckpoint.length * 4)+1))
             /*
             let convinfos: ir.ConvInfo[] = []
             let length_mask: ir.MaskInfo = {
@@ -1395,16 +1398,22 @@ namespace ts.pxtc {
             let fram_read_stmt = new ir.Stmt(1,bufr_fram_assign_expr)
            
 
-            //build if statement (if(start==1))
-            let startvar
-            for(let i = 0; i < bin.varsToCheckpoint.length; i++){
-                if(bin.varsToCheckpoint[i].getName() == "start"){
-                    startvar = bin.varsToCheckpoint[i]
-                }
-            }
-            let start_expr = new ir.Expr(9,null,startvar)
+            //build if statement
+            
+            //expr0 is the buffer
+            let expr0 = new ir.Expr(9,null,bin.saveBufferCell)
+            //int8be
+            let expr1 = new ir.Expr(1,null,1)
+            let valexpr1 = new ir.Expr(1,null,valueEncode(1))
+            //position
+            let expr2 = new ir.Expr(1,null,(bin.varsToCheckpoint.length*4))
+            //build the total expression
+            let canary_expr = new ir.Expr(3,[expr0,expr1,expr2], "BufferMethods::getNumber")
+            let canary_set_expr = new ir.Expr(3,[expr0,expr1,expr2,valexpr1],"BufferMethods::setNumber")
+            let canary_set_stmt = new ir.Stmt(1,canary_set_expr)
+            bin.canarySetStmt = canary_set_stmt
             let expr_1 = new ir.Expr(1,null,valueEncode(1))
-            let numop_expr = new ir.Expr(3,[start_expr,expr_1],"numops::eq")
+            let numop_expr = new ir.Expr(3,[canary_expr,expr_1],"numops::eq")
             let toBool_expr = new ir.Expr(3,[numop_expr],"numops::toBoolDecr")
             let if_stmt = new ir.Stmt(3,toBool_expr)
             if_stmt.jmpMode = 2
@@ -1426,12 +1435,11 @@ namespace ts.pxtc {
             //bin.mainStmts.push(fram_begin_stmt)
             //bin.mainStmts.push(bufr_fill_stmt)
             bin.mainStmts.push(fram_read_stmt)
-            bin.mainStmts.push(get_map.get("start"))
+            //bin.mainStmts.push(get_map.get("start"))
             bin.mainStmts.push(if_stmt)
             for(let varib of bin.varsToCheckpoint){
-                if(varib.getName() != "start"){
-                    bin.mainStmts.push(get_map.get(varib.getName()))
-                }
+                bin.mainStmts.push(get_map.get(varib.getName()))
+                
             }
             bin.mainStmts.push(elselbl)
             bin.mainStmts.push(goto_stmt)
@@ -1442,7 +1450,12 @@ namespace ts.pxtc {
         }
 
         function valueEncode(input: number){
-            return (input * 2) + 1
+            if(opts.target.nativeType == "thumb"){
+                return (input * 2) + 1
+            } else {
+                return input
+            }
+            
         }
 
         function findModifications(){
@@ -1464,7 +1477,7 @@ namespace ts.pxtc {
                             }
                         }
                     }
-                    if(count > 1){
+                    if(count > 1 ){
                         glb_var.isModified = true
                         bin.varsToCheckpoint.push(glb_var)
                     }
@@ -1542,15 +1555,13 @@ namespace ts.pxtc {
             return i+bin.mainStmts.length
         }
 
-        function Checkpoint(proc: ir.Procedure, start:number, end:number){
+        function Checkpoint(proc: ir.Procedure, start:number, end:number, incominglblId:string){
             let emit_stack = new Array()
             let emit_set = new Set()
             for(let i = start; i < end; i++){
                 if(proc.body[i].stmtKind == 2){
                     console.log("lbl found in Checkpoint: "+proc.body[i].lblName)
                     if(proc.body[i].lblName.includes("fortop")){
-
-                    } else if(proc.body[i].lblName.includes("cont")){
                         let strlen = proc.body[i].lblName.length
                         let idstart = proc.body[i].lblName.lastIndexOf(".")
                         let lblId = proc.body[i].lblName.substring(idstart,strlen)
@@ -1567,9 +1578,35 @@ namespace ts.pxtc {
                             }
                             i++
                         }
-                        let numEmitted = Checkpoint(proc,newstart,i-1)
+                        let numEmitted = Checkpoint(proc,newstart,i-1,lblId)
                         end+=numEmitted
                         i+=numEmitted
+
+                    } else if(proc.body[i].lblName.includes("cont")){
+                        let strlen = proc.body[i].lblName.length
+                        let idstart = proc.body[i].lblName.lastIndexOf(".")
+                        let lblId = proc.body[i].lblName.substring(idstart,strlen)
+                        
+                        console.log("this is the lblid!")
+                        console.log(lblId)
+
+                        if(incominglblId != lblId){
+                            i++
+                            let newstart = i
+                            while(1){
+                                if(proc.body[i].stmtKind == 2){
+                                    if(proc.body[i].lblName.includes("brk"+lblId)){
+                                        break;
+                                    }
+                                }
+                                i++
+                            }
+                            let numEmitted = Checkpoint(proc,newstart,i-1,"")
+                            end+=numEmitted
+                            i+=numEmitted
+                        }
+                        
+                        
                     }
                 } else if(proc.body[i].expr){
                     if(proc.body[i].expr.args){
@@ -1593,6 +1630,7 @@ namespace ts.pxtc {
                 }
             }
             if(emit_stack.length > 0){
+                emit_stack.push(bin.canarySetStmt)
                 emit_stack.push(bin.bufrWriteStmt)
                 emitBlockInPlace(proc,end,emit_stack)
                 return emit_stack.length
@@ -1609,108 +1647,16 @@ namespace ts.pxtc {
         function runOnProc(proc: ir.Procedure){
 
             //need to find a way to make sure only the user program is transformmed
-            let applytoprog = false
-            for(let checkvar of bin.varsToCheckpoint){
-                if(checkvar.getName() == "start"){
-                    applytoprog = true
-                }
-            }
+            
             if(proc.getName() == "<main>"){
                 let mainstart = mainBoilerplate(proc,0,proc.body.length)
                 console.log("mainstart = "+mainstart)
-                Checkpoint(proc, mainstart, proc.body.length-4)
+                Checkpoint(proc, mainstart, proc.body.length-4,"")
             } else {
-                Checkpoint(proc,0,proc.body.length-4)
+                Checkpoint(proc,0,proc.body.length-4,"")
             }
             
 
-            /*
-
-            if(applytoprog){
-            
-                if(proc.getName() == "<main>"){
-                    for(let mainStmt of bin.mainStmts){
-                        //need to write emitblock and emitblockbeforeret in ir.ts
-                        emitInPlace(proc,proc.body.length-7, mainStmt)
-                    }
-                } 
-                else {
-                    let has_emitted = false
-                    for(let i = 0; i < proc.body.length; i++){
-                        if(proc.body[i].stmtKind == 2){
-                            if(proc.body[i].lblName.includes("ret")){
-                                //at the end of the proc
-                                if(has_emitted){
-                                    console.log(bin.bufrWriteStmt)
-                                    //emitBeforeRet(proc,bin.bufrWriteStmt)
-                                    
-                                }
-                                break
-                            }
-                            
-                            else if(proc.body[i].lblName.includes("cont")){
-                                //while loop
-                                let loop_emits = new Array()
-                                while(1){
-                                    if(proc.body[i].stmtKind == 2){
-                                        if(proc.body[i].lblName.includes("brk")){
-                                            break
-                                        }
-                                    } else if(proc.body[i].expr){
-                                        if(proc.body[i].expr.args){
-                                            if(proc.body[i].expr.args[0]){
-                                                if(proc.body[i].expr.args[0].data){
-                                                    if(proc.body[i].expr.args[0].data.def){
-                                                        if(proc.body[i].expr.args[0].data.def.name){
-                                                            if(bin.setMap.has(proc.body[i].expr.args[0].data.def.name.escapedText)){
-                                                                loop_emits.push(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
-                                                            }
-                                                        }
-                                                        
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    i++
-                                }
-                                let emit_before_goto_offset = (proc.body.length - i) - 2
-                                for(let p = 0; p < loop_emits.length; p++){
-                                    emitInPlace(proc,emit_before_goto_offset,loop_emits[p])
-                                }
-                            }
-                            else if(proc.body[i].lblName.includes("fortop")){
-                                //for loop
-                            }
-                            
-                            
-                        } else if(proc.body[i].expr){
-                            if(proc.body[i].expr.args){
-                                if(proc.body[i].expr.args[0]){
-                                    if(proc.body[i].expr.args[0].data){
-                                        if(proc.body[i].expr.args[0].data.def){
-                                            if(proc.body[i].expr.args[0].data.def.name){
-                                                if(bin.setMap.has(proc.body[i].expr.args[0].data.def.name.escapedText)){
-                                                    
-                                                    //emitBeforeRet(proc,bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
-                                                    has_emitted = true
-                                                    
-                                                }
-                                            }
-                                            
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                
-            
-            
-            }
-            */
 
         }
 
@@ -1719,7 +1665,26 @@ namespace ts.pxtc {
             for(let glb_var of bin.globals){
                 if(glb_var.getName() == "bufr"){
                     bin.saveBufferCell = glb_var
-                } 
+                    
+                    for(let i = 0; i < bin.procs[0].body.length; i++){
+                        if(bin.procs[0].body[i].expr){
+                            if(bin.procs[0].body[i].expr.args){
+                                if(bin.procs[0].body[i].expr.args[1]){
+                                    if(bin.procs[0].body[i].expr.args[1].args){
+                                        if(bin.procs[0].body[i].expr.args[1].args[0]){
+                                            if(bin.procs[0].body[i].expr.args[1].data){
+                                                if(bin.procs[0].body[i].expr.args[1].data == "pins::createBuffer"){
+                                                    bin.procs[0].body[i].expr.args[1].args[0].data = (bin.varsToCheckpoint.length*4)+1
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                }
             }
             if(bin.saveBufferCell == null){
                 console.log("THERE IS NO BUFFER")
@@ -5579,6 +5544,7 @@ ${lbl}: .short 0xffff
         getMap: any;
         mainStmts: ir.Stmt[] = [];
         bufrWriteStmt: ir.Stmt;
+        canarySetStmt: ir.Stmt;
 
         reset() {
             this.lblNo = 0
