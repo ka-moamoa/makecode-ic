@@ -934,12 +934,15 @@ namespace ts.pxtc {
         res: CompileResult,
         entryPoint: string): EmitResult {
 
+
+        /*
         console.log("Program")
         console.log(program)
         console.log("opts")
         console.log(opts)
         console.log("res")
         console.log(res)
+        */
 
 
         //throw "HELP I think I found something";
@@ -963,12 +966,15 @@ namespace ts.pxtc {
 
         currNodeWave++
 
+
+        /*
         console.log("Program")
         console.log(program)
         console.log("opts")
         console.log(opts)
         console.log("res")
         console.log(res)
+        */
 
         if (opts.target.isNative) {
             if (!opts.extinfo || !opts.extinfo.hexinfo) {
@@ -1126,11 +1132,43 @@ namespace ts.pxtc {
             if(glb_var.getName() == "intermittent"){
                 addIntermitent = true
             }
+            if(glb_var.getName() == "base"){
+                bin.optimization = 0
+                bin.opt_val = null
+            }
+            if(glb_var.getName() == "timer"){
+                bin.optimization = 1
+                //console.log("GET TEXT HERE")
+                //console.log(glb_var.def.getText())
+                let timerstrlen = "timer = ".length
+                let timerval = parseInt(glb_var.def.getText().substring(timerstrlen))
+                //console.log(timerval)
+                bin.opt_val = timerval
+                bin.opt_cell = glb_var
+
+            }
+            if(glb_var.getName() == "jit"){
+                bin.optimization = 2
+                bin.opt_cell = glb_var
+                let jitstrlen = "jit = ".length
+                let jitval = parseInt(glb_var.def.getText().substring(jitstrlen))
+                bin.opt_val = jitval
+            }
+            if(glb_var.getName() == "weight"){
+                bin.optimization = 3
+                bin.opt_cell = glb_var
+                let weightstrlen = "weight = ".length
+                let weightval = parseInt(glb_var.def.getText().substring(weightstrlen))
+                bin.opt_val = weightval
+            }
         }
         if(addIntermitent){
             codeAnalysis()
-            setup()
-            codeTransformations()
+            if(bin.varsToCheckpoint.length > 0){
+                setup()
+                codeTransformations()
+            }
+            
         }
         
        
@@ -1417,6 +1455,22 @@ namespace ts.pxtc {
             let toBool_expr = new ir.Expr(3,[numop_expr],"numops::toBoolDecr")
             let if_stmt = new ir.Stmt(3,toBool_expr)
             if_stmt.jmpMode = 2
+
+            //build optimization if
+            //timerif
+            
+            if(bin.optimization == 1 || bin.optimization == 3){
+                // sets "timer" or "weight" variable to 0 as first mainstmt
+                let opt_cellref_expr = new ir.Expr(9, null, bin.opt_cell)
+                let val0_expr = new ir.Expr(1, null, valueEncode(0))
+                let opt_store_expr = new ir.Expr(8,[opt_cellref_expr,val0_expr],null)
+                let opt_store_stmt = new ir.Stmt(1,opt_store_expr)
+                bin.mainStmts.push(opt_store_stmt)
+
+            } 
+            
+            
+            
             
 
             // make the labels
@@ -1441,8 +1495,8 @@ namespace ts.pxtc {
                 bin.mainStmts.push(get_map.get(varib.getName()))
                 
             }
-            bin.mainStmts.push(elselbl)
             bin.mainStmts.push(goto_stmt)
+            bin.mainStmts.push(elselbl)
             bin.mainStmts.push(afterif)
  
 
@@ -1479,14 +1533,17 @@ namespace ts.pxtc {
                     }
                     if(count > 1 ){
                         glb_var.isModified = true
-                        bin.varsToCheckpoint.push(glb_var)
+                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit"){
+                            bin.varsToCheckpoint.push(glb_var)
+                        }
+                        
                     }
                 }
                 
             }
-            if(bin.varsToCheckpoint.length < 1){
-                throw "No Vars to Checkpoint"
-            }
+            //if(bin.varsToCheckpoint.length < 1){
+                //throw "No Vars to Checkpoint"
+            //}
         }
 
         function emitInPlace(proc: ir.Procedure, target: number, insert: ir.Stmt){
@@ -1558,6 +1615,9 @@ namespace ts.pxtc {
         function Checkpoint(proc: ir.Procedure, start:number, end:number, incominglblId:string){
             let emit_stack = new Array()
             let emit_set = new Set()
+            
+         
+            
             for(let i = start; i < end; i++){
                 if(proc.body[i].stmtKind == 2){
                     console.log("lbl found in Checkpoint: "+proc.body[i].lblName)
@@ -1601,7 +1661,7 @@ namespace ts.pxtc {
                                 }
                                 i++
                             }
-                            let numEmitted = Checkpoint(proc,newstart,i-1,"")
+                            let numEmitted = Checkpoint(proc,newstart,i-1,lblId) // changed lblId from "", not sure if bug or on purpose
                             end+=numEmitted
                             i+=numEmitted
                         }
@@ -1632,6 +1692,62 @@ namespace ts.pxtc {
             if(emit_stack.length > 0){
                 emit_stack.push(bin.canarySetStmt)
                 emit_stack.push(bin.bufrWriteStmt)
+                let elselbl = proc.mkLabel("else")
+                if(bin.optimization == 1){
+                    let millis_expr = new ir.Expr(3, [], "control::millis");
+                    let timer_cellref_expr = new ir.Expr(9, null, bin.opt_cell)
+                    let subs_expr = new ir.Expr(3, [millis_expr,timer_cellref_expr],"numops::subs")
+                    let duration_expr = new ir.Expr(1,null,valueEncode(bin.opt_val))
+                    let numops_gt_expr = new ir.Expr(3,[subs_expr,duration_expr],"numops::gt")
+                    let gtBool_expr = new ir.Expr(3,[numops_gt_expr], "numops::toBoolDecr")
+                    let timerif_stmt = new ir.Stmt(3,gtBool_expr)
+                    timerif_stmt.jmpMode = 2
+                    timerif_stmt.lbl = elselbl
+                    timerif_stmt.lblName = elselbl.lblName
+                    //timer reset
+                    let timer_store_expr = new ir.Expr(8,[timer_cellref_expr,millis_expr],null)
+                    let timer_store_stmt = new ir.Stmt(1,timer_store_expr)
+                    emit_stack.unshift([timerif_stmt,timer_store_stmt])
+                    emit_stack.push(elselbl)
+                } else if(bin.optimization == 2){
+                    let p1_expr = new ir.Expr(1, null, 101)
+                    let analogread_expr = new ir.Expr(3, [p1_expr], "pins::analogReadPin")
+                    let jitcell_ref = new ir.Expr(9, null, bin.opt_cell)
+                    let numopts_lt_expr = new ir.Expr(3, [analogread_expr, jitcell_ref], "numops::lt")
+                    let toBool_expr = new ir.Expr(3, [numopts_lt_expr], "numops::toBoolDecr")
+                    let jitif_stmt = new ir.Stmt(3, toBool_expr)
+                    jitif_stmt.jmpMode = 2
+                    jitif_stmt.lbl = elselbl
+                    jitif_stmt.lblName = elselbl.lblName
+                    emit_stack.unshift(jitif_stmt)
+                    emit_stack.push(elselbl)
+                } else if(bin.optimization == 3){
+                    if(incominglblId != ""){
+                        let weight_cellref_expr = new ir.Expr(9, null, bin.opt_cell)
+                        let val_expr = new ir.Expr(1, null, valueEncode(bin.opt_val))
+                        let numops_gt_expr = new ir.Expr(3,[weight_cellref_expr,val_expr], "numops::gt")
+                        let weightBool_expr = new ir.Expr(3, [numops_gt_expr], "numops::toBoolDecr")
+                        let weightif_stmt = new ir.Stmt(3, weightBool_expr)
+                        weightif_stmt.jmpMode = 2
+                        weightif_stmt.lbl = elselbl
+                        weightif_stmt.lblName = elselbl.lblName
+                        let val0_expr = new ir.Expr(1, null, valueEncode(0))
+                        let opt_store_expr = new ir.Expr(8,[weight_cellref_expr,val0_expr],null)
+                        let opt_store_stmt = new ir.Stmt(1,opt_store_expr)
+                        emit_stack.unshift(opt_store_stmt)
+                        emit_stack.unshift(weightif_stmt)
+                        emit_stack.push(elselbl)
+                        let val1_expr = new ir.Expr(1, null, valueEncode(1))
+                        let add_expr = new ir.Expr(3, [weight_cellref_expr, val1_expr], "numops::adds")
+                        let storeadd_expr = new ir.Expr(8, [weight_cellref_expr, add_expr], null)
+                        let storeadd_stmt = new ir.Stmt(1,storeadd_expr)
+                        emit_stack.push(storeadd_stmt)
+
+                        //one of these expressions is fucking things up when it is emitted
+
+                    }
+                }
+                
                 emitBlockInPlace(proc,end,emit_stack)
                 return emit_stack.length
             } else {
@@ -5545,6 +5661,10 @@ ${lbl}: .short 0xffff
         mainStmts: ir.Stmt[] = [];
         bufrWriteStmt: ir.Stmt;
         canarySetStmt: ir.Stmt;
+        optimization: number;
+        opt_instructions: ir.Stmt[] = [];
+        opt_val: any;
+        opt_cell: ir.Cell;
 
         reset() {
             this.lblNo = 0
