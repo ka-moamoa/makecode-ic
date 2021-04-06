@@ -1596,14 +1596,16 @@ namespace ts.pxtc {
                     emittedmainstmts = true
                     break
                 }
+                /* maybe just labels is better?
                 else if(proc.body[i].expr){
-                    if(proc.body[i].expr.exprKind == 3 /*|| proc.body[i].expr.exprKind == 4 */){
+                    if(proc.body[i].expr.exprKind == 3 || // proc.body[i].expr.exprKind == 4 ){
                         console.log("found proc or runtime call in main at: "+ i)
                         emitMainStmts(proc,i)
                         emittedmainstmts = true
                         break
                     }
                 }
+                */
                 
                 
             }
@@ -1695,8 +1697,16 @@ namespace ts.pxtc {
                 let elselbl = proc.mkLabel("else")
                 if(bin.optimization == 1){
                     let millis_expr = new ir.Expr(3, [], "control::millis");
+                    
                     let timer_cellref_expr = new ir.Expr(9, null, bin.opt_cell)
-                    let subs_expr = new ir.Expr(3, [millis_expr,timer_cellref_expr],"numops::subs")
+                    let expr_2 = new ir.Expr(1, null, valueEncode(2))
+                    let expr_1 = new ir.Expr(1, null, valueEncode(1))
+                    let millis_mul_expr = new ir.Expr(3,[millis_expr,expr_2], "numops::muls")
+                    let millis_fromInt = fromInt(millis_expr)
+                    let millis_dub_add_expr = new ir.Expr(3, [millis_mul_expr, expr_1], "numops::adds")
+                    let debug_expr = new ir.Expr(8, [timer_cellref_expr, millis_fromInt], "")
+                    let debug_stmt = new ir.Stmt(1, debug_expr)
+                    let subs_expr = new ir.Expr(3, [millis_fromInt,timer_cellref_expr],"numops::subs")
                     let duration_expr = new ir.Expr(1,null,valueEncode(bin.opt_val))
                     let numops_gt_expr = new ir.Expr(3,[subs_expr,duration_expr],"numops::gt")
                     let gtBool_expr = new ir.Expr(3,[numops_gt_expr], "numops::toBoolDecr")
@@ -1705,12 +1715,17 @@ namespace ts.pxtc {
                     timerif_stmt.lbl = elselbl
                     timerif_stmt.lblName = elselbl.lblName
                     //timer reset
-                    let timer_store_expr = new ir.Expr(8,[timer_cellref_expr,millis_expr],null)
+                    let timer_store_expr = new ir.Expr(8,[timer_cellref_expr,millis_fromInt],"")
                     let timer_store_stmt = new ir.Stmt(1,timer_store_expr)
-                    emit_stack.unshift([timerif_stmt,timer_store_stmt])
+                    let null_stmt = new ir.Stmt(4,null)
+                    emit_stack.unshift(null_stmt)
+                    emit_stack.unshift(timer_store_stmt) //ran into bug where I can't unshift all at once, have to separate them
+                    emit_stack.unshift(timerif_stmt)
+                    //emit_stack.unshift(null_stmt)
+                    //emit_stack.unshift(debug_stmt)
                     emit_stack.push(elselbl)
                 } else if(bin.optimization == 2){
-                    let p1_expr = new ir.Expr(1, null, 101)
+                    let p1_expr = new ir.Expr(1, null, 102)
                     let analogread_expr = new ir.Expr(3, [p1_expr], "pins::analogReadPin")
                     let jitcell_ref = new ir.Expr(9, null, bin.opt_cell)
                     let numopts_lt_expr = new ir.Expr(3, [analogread_expr, jitcell_ref], "numops::lt")
