@@ -1728,7 +1728,8 @@ namespace ts.pxtc {
                     let p1_expr = new ir.Expr(1, null, 102)
                     let analogread_expr = new ir.Expr(3, [p1_expr], "pins::analogReadPin")
                     let jitcell_ref = new ir.Expr(9, null, bin.opt_cell)
-                    let numopts_lt_expr = new ir.Expr(3, [analogread_expr, jitcell_ref], "numops::lt")
+                    let analogfromint_expr = fromInt(analogread_expr)
+                    let numopts_lt_expr = new ir.Expr(3, [analogfromint_expr, jitcell_ref], "numops::gt")
                     let toBool_expr = new ir.Expr(3, [numopts_lt_expr], "numops::toBoolDecr")
                     let jitif_stmt = new ir.Stmt(3, toBool_expr)
                     jitif_stmt.jmpMode = 2
