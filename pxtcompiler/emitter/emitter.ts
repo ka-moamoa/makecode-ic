@@ -1161,6 +1161,9 @@ namespace ts.pxtc {
                 let weightval = parseInt(glb_var.def.getText().substring(weightstrlen))
                 bin.opt_val = weightval
             }
+            if(glb_var.getName() == "generation"){
+                bin.gen_cell = glb_var
+            }
         }
         if(addIntermitent){
             codeAnalysis()
@@ -1312,34 +1315,14 @@ namespace ts.pxtc {
             // *****Variable list order determined by the order in which the variables are used, NOT THE ORDER IN WHICH THEY ARE DEFINED
             // *****If a variable is defined but not used, it will be optimized out
 
-            //build map of var name to bufr.setnumber() and bufr.getnumber()
-            let set_map = new Map()
-            let get_map = new Map()
-            for(let i = 0; i<bin.varsToCheckpoint.length; i++){
-                //expr0 is the buffer
-                let expr0 = new ir.Expr(9,null,bin.saveBufferCell)
-                //int32be
-                let expr1 = new ir.Expr(1,null,10)
-                //position(i*4)
-                let expr2 = new ir.Expr(1,null,i*4)
-                //expr3 is the variable
-                let expr3 = new ir.Expr(9,null,bin.varsToCheckpoint[i])
-                //build the total expression
-                let expr_set_final = new ir.Expr(3,[expr0,expr1,expr2,expr3],"BufferMethods::setNumber")
-                let expr_get = new ir.Expr(3,[expr0,expr1,expr2], "BufferMethods::getNumber")
-                let expr_get_final = new ir.Expr(8,[expr3,expr_get],undefined)
-                let set_stmt = new ir.Stmt(1,expr_set_final)
-                let get_stmt = new ir.Stmt(1,expr_get_final)
-                set_map.set(bin.varsToCheckpoint[i].getName(),set_stmt)
-                get_map.set(bin.varsToCheckpoint[i].getName(),get_stmt)
-            }
-
-            bin.setMap = set_map
-            bin.getMap = get_map
+          
+            
 
             let fram_begin_index
-            let fram_write_index
-            let fram_read_index
+            let fram_write_number_index
+            let fram_read_number_index
+            let fram_read8_index
+            let fram_write8_index
 
             
 
@@ -1349,19 +1332,70 @@ namespace ts.pxtc {
                     console.log(bin.procs[i])
                     fram_begin_index = i
                 }
-                if(bin.procs[i].getName() == "write_buffer"){
-                    console.log("found index write buffer")
+                if(bin.procs[i].getName() == "write_number"){
+                    console.log("found index write number")
                     console.log(bin.procs[i])
-                    fram_write_index = i
+                    fram_write_number_index = i
                 }
-                if(bin.procs[i].getName() == "read_buffer"){
-                    console.log("found index read buffer")
+                if(bin.procs[i].getName() == "read_number"){
+                    console.log("found index read number")
                     console.log(bin.procs[i])
-                    fram_read_index = i
+                    fram_read_number_index = i
+                }
+                if(bin.procs[i].getName() == "read8"){
+                    fram_read8_index = i
+                }
+                if(bin.procs[i].getName() == "write8"){
+                    fram_write8_index = i
                 }
             }
+            let fram_write_number_procid: ir.ProcId = {
+                proc: bin.procs[fram_write_number_index],
+                callLocationIndex: 32,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_read_number_procid: ir.ProcId = {
+                proc: bin.procs[fram_read_number_index],
+                callLocationIndex: 32,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_read8_procid: ir.ProcId = {
+                proc: bin.procs[fram_read8_index],
+                callLocationIndex: 30,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_write8_procid: ir.ProcId = {
+                proc: bin.procs[fram_write8_index],
+                callLocationIndex: 14,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
 
-           
+            let set_map = new Map()
+            let get_map = new Map()
+            for(let i = 0; i<bin.varsToCheckpoint.length; i++){
+                //position(i*4)
+                let addr_expr = new ir.Expr(1,null,(valueEncode(i*4) + 1)) // might need to valueencode, also needs to start at addr 1 bc gen is at addr0 now
+                //expr3 is the variable
+                let val_expr = new ir.Expr(9,null,bin.varsToCheckpoint[i])
+                //build the total expression
+                let write_number_expr = new ir.Expr(4,[addr_expr,val_expr],fram_write_number_procid)
+                let read_number_expr = new ir.Expr(4,[addr_expr],fram_read_number_procid)
+                let assign_read_number_expr = new ir.Expr(8, [val_expr,read_number_expr],undefined)
+                let write_stmt = new ir.Stmt(1,write_number_expr)
+                let read_stmt = new ir.Stmt(1, assign_read_number_expr)
+                set_map.set(bin.varsToCheckpoint[i].getName(),write_stmt)
+                get_map.set(bin.varsToCheckpoint[i].getName(),read_stmt)
+            }
+
+            bin.setMap = set_map
+            bin.getMap = get_map
+
+            let addr_zero_expr = new ir.Expr(1, null, valueEncode(0))
+            let gen_read_expr = new ir.Expr(4,[addr_zero_expr],fram_read8_procid)
 
 
             //build fram.begin()
@@ -1376,7 +1410,9 @@ namespace ts.pxtc {
 
             console.log(fram_begin_stmt)
 
-            //build fram.write_buffer()
+
+            //build fram.write_number()
+            /*
             let bufr__cell_expr = new ir.Expr(9,null,bin.saveBufferCell)
             let fram_addr_expr = new ir.Expr(1,null,valueEncode(1))
             let fram_write_buffer_procid: ir.ProcId = {
@@ -1423,7 +1459,7 @@ namespace ts.pxtc {
                 conversions: convinfos
             }
             length_expr.mask = length_mask
-            */
+            
             let fram_read_buffer_procid: ir.ProcId = {
                 proc: bin.procs[fram_read_index],
                 callLocationIndex: 30,
@@ -1435,7 +1471,10 @@ namespace ts.pxtc {
             let bufr_fram_assign_expr = new ir.Expr(8,[bufr__cell_expr,fram_read_expr],null)
             let fram_read_stmt = new ir.Stmt(1,bufr_fram_assign_expr)
            
+*/
 
+            
+            
             //build if statement
             
             //expr0 is the buffer
@@ -1450,8 +1489,16 @@ namespace ts.pxtc {
             let canary_set_expr = new ir.Expr(3,[expr0,expr1,expr2,valexpr1],"BufferMethods::setNumber")
             let canary_set_stmt = new ir.Stmt(1,canary_set_expr)
             bin.canarySetStmt = canary_set_stmt
-            let expr_1 = new ir.Expr(1,null,valueEncode(1))
-            let numop_expr = new ir.Expr(3,[canary_expr,expr_1],"numops::eq")
+
+
+
+            //assign gen to 1 if gen is 0, aka put gen = 1 in else block
+            let gencell_expr = new ir.Expr(9,null,bin.gen_cell)
+            let gen1_expr = new ir.Expr(8, [gencell_expr,valexpr1],undefined)
+            let gen1_stmt = new ir.Stmt(1, gen1_expr)
+
+            let expr_0 = new ir.Expr(1,null,valueEncode(0))
+            let numop_expr = new ir.Expr(3,[gencell_expr,expr_0],"numops::gt")
             let toBool_expr = new ir.Expr(3,[numop_expr],"numops::toBoolDecr")
             let if_stmt = new ir.Stmt(3,toBool_expr)
             if_stmt.jmpMode = 2
@@ -1480,6 +1527,23 @@ namespace ts.pxtc {
             if_stmt.lblName = elselbl.lblName
 
 
+            
+
+
+            //gen invert, insert at the end of an fram write to commit the change
+            let bnot_expr = new ir.Expr(3, [gencell_expr], "numops::bnot")
+            let bnot_assign_expr = new ir.Expr(8, [gencell_expr, bnot_expr], undefined)
+            let bnot_assign_stmt = new ir.Stmt(1, bnot_assign_expr)
+
+            bin.gen_invert = bnot_assign_stmt
+
+            //gen write8, write gen to addr 0
+    
+            let gen_write8_expr = new ir.Expr(4,[addr_zero_expr, gencell_expr], fram_write8_procid)
+            let gen_write8_stmt = new ir.Stmt(1, gen_write8_expr)
+            bin.gen_write8 = gen_write8_stmt
+
+
             // goto afterif
             let goto_stmt = new ir.Stmt(3,null)
             goto_stmt.lbl = afterif
@@ -1488,15 +1552,15 @@ namespace ts.pxtc {
 
             //bin.mainStmts.push(fram_begin_stmt)
             //bin.mainStmts.push(bufr_fill_stmt)
-            bin.mainStmts.push(fram_read_stmt)
+            //bin.mainStmts.push(fram_read_stmt)
             //bin.mainStmts.push(get_map.get("start"))
             bin.mainStmts.push(if_stmt)
             for(let varib of bin.varsToCheckpoint){
                 bin.mainStmts.push(get_map.get(varib.getName()))
-                
             }
             bin.mainStmts.push(goto_stmt)
             bin.mainStmts.push(elselbl)
+            bin.mainStmts.push(gen1_stmt)
             bin.mainStmts.push(afterif)
  
 
@@ -1692,8 +1756,8 @@ namespace ts.pxtc {
                 }
             }
             if(emit_stack.length > 0){
-                emit_stack.push(bin.canarySetStmt)
-                emit_stack.push(bin.bufrWriteStmt)
+                emit_stack.push(bin.gen_invert)
+                emit_stack.push(bin.gen_write8)
                 let elselbl = proc.mkLabel("else")
                 if(bin.optimization == 1){
                     let millis_expr = new ir.Expr(3, [], "control::millis");
@@ -5681,6 +5745,9 @@ ${lbl}: .short 0xffff
         opt_instructions: ir.Stmt[] = [];
         opt_val: any;
         opt_cell: ir.Cell;
+        gen_cell: ir.Cell;
+        gen_invert: ir.Stmt;
+        gen_write8: ir.Stmt;
 
         reset() {
             this.lblNo = 0
