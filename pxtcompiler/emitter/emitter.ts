@@ -1052,8 +1052,8 @@ namespace ts.pxtc {
                 files = files.filter(sf => sf.fileName !== "main.ts");
                 
                 files.push(main);
-                console.log("files")
-                console.log(files)
+                //console.log("files")
+                //console.log(files)
             }
 
             files.forEach(f => {
@@ -1061,7 +1061,7 @@ namespace ts.pxtc {
                     allStmts.push(s)
                 });
             });
-            console.log("all stmts")
+            //console.log("all stmts")
             //console.log(allStmts)
         }
 
@@ -1113,15 +1113,15 @@ namespace ts.pxtc {
         needsUsingInfo = false
         bin.finalPass = true
 
-        console.log("about to do final pass")
+        //console.log("about to do final pass")
 
         //emit(rootFunction)
 
-        console.log("2 printing bin procs")
-        console.log(bin)
+        //console.log("2 printing bin procs")
+        //console.log(bin)
 
-        console.log("rootfunction")
-        console.log(rootFunction)
+        //console.log("rootfunction")
+        //console.log(rootFunction)
         //let root_copy = rootFunction.parent.text
         //root_copy = "led.plot(4,4)"
         //rootFunction.parent.text = root_copy
@@ -1229,7 +1229,7 @@ namespace ts.pxtc {
         let pass1 = U.cpuUs()
         res.times["pass1"] = pass1 - pass0
         
-        console.log("3 printing bin procs")
+        //console.log("3 printing bin procs")
         //console.log(bin.procs.toString())
 
         catchErrors(rootFunction, finalEmit)
@@ -1323,23 +1323,24 @@ namespace ts.pxtc {
             let fram_read_number_index
             let fram_read8_index
             let fram_write8_index
+            let fram_writeEnable_index
 
             
 
             for(let i = 0; i < bin.procs.length; i++){
                 if(bin.procs[i].getName() == "begin"){
-                    console.log("found index begin")
-                    console.log(bin.procs[i])
+                    //console.log("found index begin")
+                    //console.log(bin.procs[i])
                     fram_begin_index = i
                 }
                 if(bin.procs[i].getName() == "write_number"){
-                    console.log("found index write number")
-                    console.log(bin.procs[i])
+                    //console.log("found index write number")
+                    //console.log(bin.procs[i])
                     fram_write_number_index = i
                 }
                 if(bin.procs[i].getName() == "read_number"){
-                    console.log("found index read number")
-                    console.log(bin.procs[i])
+                    //console.log("found index read number")
+                    //console.log(bin.procs[i])
                     fram_read_number_index = i
                 }
                 if(bin.procs[i].getName() == "read8"){
@@ -1348,6 +1349,15 @@ namespace ts.pxtc {
                 if(bin.procs[i].getName() == "write8"){
                     fram_write8_index = i
                 }
+                if(bin.procs[i].getName() == "writeEnable"){
+                    fram_writeEnable_index = i
+                }
+            }
+            let fram_writeEnable_procid: ir.ProcId = {
+                proc: bin.procs[fram_writeEnable_index],
+                callLocationIndex: 39,
+                virtualIndex: null,
+                ifaceIndex: null
             }
             let fram_write_number_procid: ir.ProcId = {
                 proc: bin.procs[fram_write_number_index],
@@ -1378,12 +1388,14 @@ namespace ts.pxtc {
             let get_map = new Map()
             for(let i = 0; i<bin.varsToCheckpoint.length; i++){
                 //position(i*4)
-                let addr_expr = new ir.Expr(1,null,(valueEncode(i*4) + 1)) // might need to valueencode, also needs to start at addr 1 bc gen is at addr0 now
+                let addr_expr = new ir.Expr(1,null,(valueEncode((i*4) + 1))) // might need to valueencode, also needs to start at addr 1 bc gen is at addr0 now
                 //expr3 is the variable
                 let val_expr = new ir.Expr(9,null,bin.varsToCheckpoint[i])
+                //build address length (for double buffering)
+                let addrlength_expr = new ir.Expr(1, null, valueEncode(bin.varsToCheckpoint.length * 4))
                 //build the total expression
-                let write_number_expr = new ir.Expr(4,[addr_expr,val_expr],fram_write_number_procid)
-                let read_number_expr = new ir.Expr(4,[addr_expr],fram_read_number_procid)
+                let write_number_expr = new ir.Expr(4,[addr_expr,val_expr, addrlength_expr],fram_write_number_procid)
+                let read_number_expr = new ir.Expr(4,[addr_expr, addrlength_expr],fram_read_number_procid)
                 let assign_read_number_expr = new ir.Expr(8, [val_expr,read_number_expr],undefined)
                 let write_stmt = new ir.Stmt(1,write_number_expr)
                 let read_stmt = new ir.Stmt(1, assign_read_number_expr)
@@ -1408,7 +1420,7 @@ namespace ts.pxtc {
             let fram_begin_expr = new ir.Expr(4,[], fram_begin_procid)
             let fram_begin_stmt = new ir.Stmt(1,fram_begin_expr)
 
-            console.log(fram_begin_stmt)
+            //console.log(fram_begin_stmt)
 
 
             //build fram.write_number()
@@ -1537,8 +1549,15 @@ namespace ts.pxtc {
 
             bin.gen_invert = bnot_assign_stmt
 
+            //writeEnable
+            let writeEnable_expr = new ir.Expr(4,[],fram_writeEnable_procid)
+            let writeEnable_stmt = new ir.Stmt(1, writeEnable_expr)
+
+            bin.writeEnableStmt = writeEnable_stmt
+
             //gen write8, write gen to addr 0
     
+            //let test_expr = new ir.Expr(1, null, valueEncode(1))
             let gen_write8_expr = new ir.Expr(4,[addr_zero_expr, gencell_expr], fram_write8_procid)
             let gen_write8_stmt = new ir.Stmt(1, gen_write8_expr)
             bin.gen_write8 = gen_write8_stmt
@@ -1635,7 +1654,7 @@ namespace ts.pxtc {
                 emitStack.push(proc.body.pop())
             }
             for(let p = 0; p < insert.length; p++){
-                console.log(insert[p])
+                //console.log(insert[p])
                 proc.emit(insert[p])
             }
             
@@ -1655,7 +1674,7 @@ namespace ts.pxtc {
             for(i = start; i < end; i++){
                 
                 if(proc.body[i].stmtKind == 2){
-                    console.log("found lbl in main at: "+ i)
+                    //console.log("found lbl in main at: "+ i)
                     emitMainStmts(proc,i)
                     emittedmainstmts = true
                     break
@@ -1686,13 +1705,13 @@ namespace ts.pxtc {
             
             for(let i = start; i < end; i++){
                 if(proc.body[i].stmtKind == 2){
-                    console.log("lbl found in Checkpoint: "+proc.body[i].lblName)
+                    //console.log("lbl found in Checkpoint: "+proc.body[i].lblName)
                     if(proc.body[i].lblName.includes("fortop")){
                         let strlen = proc.body[i].lblName.length
                         let idstart = proc.body[i].lblName.lastIndexOf(".")
                         let lblId = proc.body[i].lblName.substring(idstart,strlen)
-                        console.log("this is the lblid!")
-                        console.log(lblId)
+                        //console.log("this is the lblid!")
+                        //console.log(lblId)
                         
                         i++
                         let newstart = i
@@ -1713,8 +1732,8 @@ namespace ts.pxtc {
                         let idstart = proc.body[i].lblName.lastIndexOf(".")
                         let lblId = proc.body[i].lblName.substring(idstart,strlen)
                         
-                        console.log("this is the lblid!")
-                        console.log(lblId)
+                        //console.log("this is the lblid!")
+                        //console.log(lblId)
 
                         if(incominglblId != lblId){
                             i++
@@ -1757,6 +1776,7 @@ namespace ts.pxtc {
             }
             if(emit_stack.length > 0){
                 emit_stack.push(bin.gen_invert)
+                emit_stack.push(bin.writeEnableStmt)
                 emit_stack.push(bin.gen_write8)
                 let elselbl = proc.mkLabel("else")
                 if(bin.optimization == 1){
@@ -1846,7 +1866,7 @@ namespace ts.pxtc {
             
             if(proc.getName() == "<main>"){
                 let mainstart = mainBoilerplate(proc,0,proc.body.length)
-                console.log("mainstart = "+mainstart)
+                //console.log("mainstart = "+mainstart)
                 Checkpoint(proc, mainstart, proc.body.length-4,"")
             } else {
                 Checkpoint(proc,0,proc.body.length-4,"")
@@ -5748,6 +5768,7 @@ ${lbl}: .short 0xffff
         gen_cell: ir.Cell;
         gen_invert: ir.Stmt;
         gen_write8: ir.Stmt;
+        writeEnableStmt: ir.Stmt;
 
         reset() {
             this.lblNo = 0
