@@ -1543,7 +1543,8 @@ namespace ts.pxtc {
 
 
             //gen invert, insert at the end of an fram write to commit the change
-            let bnot_expr = new ir.Expr(3, [gencell_expr], "numops::bnot")
+            let num_expr = new ir.Expr(1, null, valueEncode(255))
+            let bnot_expr = new ir.Expr(3, [gencell_expr, num_expr], "numops::eors")
             let bnot_assign_expr = new ir.Expr(8, [gencell_expr, bnot_expr], undefined)
             let bnot_assign_stmt = new ir.Stmt(1, bnot_assign_expr)
 
@@ -1616,7 +1617,7 @@ namespace ts.pxtc {
                     }
                     if(count > 1 ){
                         glb_var.isModified = true
-                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit"){
+                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "generation"){
                             bin.varsToCheckpoint.push(glb_var)
                         }
                         
@@ -1763,6 +1764,7 @@ namespace ts.pxtc {
                                             if(!emit_set.has(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))){
                                                 emit_stack.push(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
                                                 emit_set.add(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
+                                
                                             }
                                             
                                         }
@@ -1775,6 +1777,12 @@ namespace ts.pxtc {
                 }
             }
             if(emit_stack.length > 0){
+                emit_stack = [] //ugly hack to fix differential checkpointing, come back to this later
+                for(let i = 0; i < bin.varsToCheckpoint.length; i++){
+                    emit_stack.push(bin.setMap.get(bin.varsToCheckpoint[i].getName()))
+                }
+
+
                 emit_stack.push(bin.gen_invert)
                 emit_stack.push(bin.writeEnableStmt)
                 emit_stack.push(bin.gen_write8)
