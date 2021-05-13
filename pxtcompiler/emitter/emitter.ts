@@ -1117,8 +1117,8 @@ namespace ts.pxtc {
 
         //emit(rootFunction)
 
-        console.log("2 printing bin procs")
-        console.log(bin)
+        //console.log("2 printing bin procs")
+        //console.log(bin)
 
         //console.log("rootfunction")
         //console.log(rootFunction)
