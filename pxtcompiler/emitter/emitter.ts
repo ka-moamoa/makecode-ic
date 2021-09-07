@@ -1164,6 +1164,9 @@ namespace ts.pxtc {
             if(glb_var.getName() == "generation"){
                 bin.gen_cell = glb_var
             }
+            if(glb_var.getName() == "label"){
+                bin.label_cell = glb_var
+            }
         }
         if(addIntermitent){
             codeAnalysis()
@@ -1297,6 +1300,30 @@ namespace ts.pxtc {
                               
                                 if(prc.info.decl.parent.getSourceFile().fileName == "main.ts"){
                                     runOnProc(prc)
+                                }
+                            }
+                            
+                            
+                        }
+                    }
+                }
+                
+               
+                
+            }
+            for(let prc of bin.procs){
+                
+                
+                if(prc.info){
+                   
+                    if(prc.info.decl){
+                       
+                        if(prc.info.decl.parent){
+                            
+                            if(prc.info.decl.parent.getSourceFile()){
+                              
+                                if(prc.info.decl.parent.getSourceFile().fileName == "main.ts"){
+                                    run2OnProc(prc)
                                 }
                             }
                             
@@ -1625,6 +1652,7 @@ namespace ts.pxtc {
                 }
                 
             }
+            bin.varsToCheckpoint.push(bin.label_cell)
             //if(bin.varsToCheckpoint.length < 1){
                 //throw "No Vars to Checkpoint"
             //}
@@ -1675,6 +1703,81 @@ namespace ts.pxtc {
             for(i = start; i < end; i++){
                 
                 if(proc.body[i].stmtKind == 2){
+                    //console.log("found lbl in main at: "+ i)
+                    //SemitMainStmts(proc,i)
+                    emittedmainstmts = true
+                    //break
+
+                    //TEST
+
+                    return i
+                }
+                /* maybe just labels is better?
+                else if(proc.body[i].expr){
+                    if(proc.body[i].expr.exprKind == 3 || // proc.body[i].expr.exprKind == 4 ){
+                        console.log("found proc or runtime call in main at: "+ i)
+                        emitMainStmts(proc,i)
+                        emittedmainstmts = true
+                        break
+                    }
+                }
+                */
+                
+                
+            }
+            
+
+            return i+bin.mainStmts.length
+        }
+
+        function mainRestore(proc: ir.Procedure, start:number, end:number){
+            //boilerplate = 3
+            //num of vars = 6
+            //fram stuff = 3
+            //total = 12
+            let i
+
+            let afterif = bin.mainStmts.pop()
+            let gen1 = bin.mainStmts.pop()
+            let origelselbl = bin.mainStmts.pop()
+            let goto = bin.mainStmts.pop()
+
+            let j
+
+            let label_cell_expr = new ir.Expr(9,null,bin.label_cell)
+
+            for(j = 0; j < bin.checklabel.length; j++){
+                
+                let expr_j = new ir.Expr(1,null,valueEncode(j))
+                let numop_expr = new ir.Expr(3,[label_cell_expr,expr_j],"numops::eq")
+                let toBool_expr = new ir.Expr(3,[numop_expr],"numops::toBoolDecr")
+                let if_stmt = new ir.Stmt(3,toBool_expr)
+                if_stmt.jmpMode = 2
+
+                let goto_label_stmt = new ir.Stmt(3,null)
+                goto_label_stmt.lbl = bin.checklabel[j]
+                goto_label_stmt.lblName = bin.checklabel[j].lblName
+                goto_label_stmt.jmpMode = 1
+
+                let elselbl = proc.mkLabel("else")
+
+                if_stmt.lbl = elselbl
+                if_stmt.lblName = elselbl.lblName
+
+                bin.mainStmts.push(if_stmt)
+                bin.mainStmts.push(goto_label_stmt)
+                bin.mainStmts.push(elselbl)
+            }
+
+            bin.mainStmts.push(goto)
+            bin.mainStmts.push(origelselbl)
+            bin.mainStmts.push(gen1)
+            bin.mainStmts.push(afterif)
+        
+            let emittedmainstmts = false
+            for(i = start; i < end; i++){
+                
+                if(proc.body[i].stmtKind == 2 || proc.body[i].stmtKind == 3){
                     //console.log("found lbl in main at: "+ i)
                     emitMainStmts(proc,i)
                     emittedmainstmts = true
@@ -1778,6 +1881,17 @@ namespace ts.pxtc {
             }
             if(emit_stack.length > 0){
                 emit_stack = [] //ugly hack to fix differential checkpointing, come back to this later
+
+                 //insert write to label
+
+                 let label_number_expr = new ir.Expr(1, null, valueEncode(bin.checklabel.length))
+                 let label_cell_expr = new ir.Expr(9, null, bin.label_cell)
+                 let label_assign_expr = new ir.Expr(8, [label_cell_expr, label_number_expr], undefined)
+                 let label_assign_stmt = new ir.Stmt(1,label_assign_expr)
+ 
+                 emit_stack.push(label_assign_stmt)
+
+
                 for(let i = 0; i < bin.varsToCheckpoint.length; i++){
                     emit_stack.push(bin.setMap.get(bin.varsToCheckpoint[i].getName()))
                 }
@@ -1786,6 +1900,10 @@ namespace ts.pxtc {
                 emit_stack.push(bin.gen_invert)
                 emit_stack.push(bin.writeEnableStmt)
                 emit_stack.push(bin.gen_write8)
+
+               
+
+
                 let elselbl = proc.mkLabel("else")
                 if(bin.optimization == 1){
                     let millis_expr = new ir.Expr(3, [], "control::millis");
@@ -1856,7 +1974,14 @@ namespace ts.pxtc {
 
                     }
                 }
-                
+
+                //add label at the end of each checkpoint
+                // enumerate each label as a number
+                // save that number to a custom variable that will be saved in the checkpoint, will work like any other vairable
+                // need to find a way to add switch statement at the top of the program
+                let checkpointlabel = proc.mkLabel("Checkpoint")
+                emit_stack.push(checkpointlabel)
+                bin.checklabel.push(checkpointlabel)
                 emitBlockInPlace(proc,end,emit_stack)
                 return emit_stack.length
             } else {
@@ -1880,6 +2005,18 @@ namespace ts.pxtc {
             } else {
                 Checkpoint(proc,0,proc.body.length-4,"")
             }
+            
+
+
+        }
+
+        function run2OnProc(proc: ir.Procedure){
+
+            //need to find a way to make sure only the user program is transformmed
+            
+            if(proc.getName() == "<main>"){
+                mainRestore(proc,0,proc.body.length)
+            } 
             
 
 
@@ -5778,6 +5915,8 @@ ${lbl}: .short 0xffff
         gen_invert: ir.Stmt;
         gen_write8: ir.Stmt;
         writeEnableStmt: ir.Stmt;
+        checklabel: ir.Stmt[] = [];
+        label_cell: ir.Cell;
 
         reset() {
             this.lblNo = 0
