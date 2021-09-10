@@ -123,8 +123,8 @@ namespace ts.pxtc {
         }
 
         storeGeneratedFiles(opts, res)
-        console.log("res files and procs")
-        console.log(res)
+        //console.log("res files and procs")
+        //console.log(res)
 
         if (!opts.sourceFiles)
             opts.sourceFiles = Object.keys(opts.fileSystem)
@@ -144,8 +144,8 @@ namespace ts.pxtc {
 
         res.times["conversions"] = U.cpuUs() - startTime
 
-        console.log("res files and procs2")
-        console.log(res)
+        //console.log("res files and procs2")
+        //console.log(res)
 
         return res
     }
