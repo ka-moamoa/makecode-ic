@@ -5,6 +5,10 @@ namespace pxt.sprite {
     export const BLOCKLY_TILESET_TYPE = "BLOCKLY_TILESET_TYPE";
     export const TILE_PREFIX = "tile";
     export const TILE_NAMESPACE = "myTiles";
+    export const IMAGES_NAMESPACE = "myImages";
+    export const IMAGE_PREFIX = "image";
+    export const ANIMATION_NAMESPACE = "myAnimations";
+    export const ANIMATION_PREFIX = "anim";
 
     export interface Coord {
         x: number,
@@ -46,6 +50,8 @@ namespace pxt.sprite {
         }
 
         constructor(public width: number, public height: number, public x0 = 0, public y0 = 0, buf?: Uint8ClampedArray) {
+            if (!this.width) this.width = 16;
+            if (!this.height) this.height = 16;
             this.buf = buf || new Uint8ClampedArray(this.dataLength());
         }
 
@@ -201,6 +207,21 @@ namespace pxt.sprite {
 
             return new TilemapData(tm, tileset, layers);
         }
+
+        equals(other: TilemapData) {
+            if (!(this.tilemap.equals(other.tilemap)
+                && this.tileset.tileWidth == other.tileset.tileWidth
+                && this.tileset.tiles.length == other.tileset.tiles.length
+                && bitmapEquals(this.layers, other.layers))) {
+                    return false;
+            }
+
+            for (let i = 0; i < this.tileset.tiles.length; i++) {
+                if (!assetEquals(this.tileset.tiles[i], other.tileset.tiles[i])) return false;
+            }
+
+            return true;
+        }
     }
 
     export class Bitmask {
@@ -342,7 +363,10 @@ namespace pxt.sprite {
     }
 
     export function getBitmapFromJResURL(jresURL: string) {
-        let data = atob(jresURL.slice(jresURL.indexOf(",") + 1))
+        return hexToBitmap(atob(jresURL.slice(jresURL.indexOf(",") + 1)))
+    }
+
+    export function hexToBitmap(data: string) {
         let magic = data.charCodeAt(0);
         let w = data.charCodeAt(1);
         let h = data.charCodeAt(2);
@@ -390,6 +414,7 @@ namespace pxt.sprite {
     }
 
     export function filterItems(target: GalleryItem[], tags: string[]) {
+        // Keep this unified with ImageFieldEditor:filterAssets
         tags = tags
             .filter(el => !!el)
             .map(el => el.toLowerCase());
@@ -516,7 +541,17 @@ namespace pxt.sprite {
             return proj.createNewTile(bitmap.data());
         }
 
-        return proj.resolveTile(literal);
+        switch (literal) {
+            case "myTiles.tile0":
+            case "myTiles.transparency16":
+                return proj.getTransparency(16);
+            case "myTiles.transparency8":
+                return proj.getTransparency(8);
+            case "myTiles.transparency32":
+                return proj.getTransparency(32);
+            default:
+                return proj.resolveTile(literal);
+        }
     }
 
     export function formatByte(value: number, bytes: number) {
@@ -547,16 +582,13 @@ namespace pxt.sprite {
         return result;
     }
 
-    export function imageLiteralToBitmap(text: string, defaultPattern?: string): Bitmap {
+    export function imageLiteralToBitmap(text: string): Bitmap {
         // Strip the tagged template string business and the whitespace. We don't have to exhaustively
         // replace encoded characters because the compiler will catch any disallowed characters and throw
         // an error before the decompilation happens. 96 is backtick and 9 is tab
         text = text.replace(/[ `]|(?:&#96;)|(?:&#9;)|(?:img)/g, "").trim();
         text = text.replace(/^["`\(\)]*/, '').replace(/["`\(\)]*$/, '');
         text = text.replace(/&#10;/g, "\n");
-
-        if (!text && defaultPattern)
-            text = defaultPattern;
 
         const rows = text.split("\n");
 
@@ -587,6 +619,8 @@ namespace pxt.sprite {
                     case "d": case "D": case "O": rowValues.push(13); break;
                     case "e": case "E": case "Y": rowValues.push(14); break;
                     case "f": case "F": case "W": rowValues.push(15); break;
+                    default:
+                        if (!/\s/.test(row[c])) return undefined;
                 }
             }
 
@@ -613,6 +647,71 @@ namespace pxt.sprite {
         }
 
         return result;
+    }
+
+    export function encodeAnimationString(frames: BitmapData[], interval: number) {
+        const encodedFrames = frames.map(frame => frame.data);
+
+        const data = new Uint8ClampedArray(8 + encodedFrames[0].length * encodedFrames.length);
+
+        // interval, frame width, frame height, frame count
+        set16Bit(data, 0, interval);
+        set16Bit(data, 2, frames[0].width);
+        set16Bit(data, 4, frames[0].height);
+        set16Bit(data, 6, frames.length);
+
+        let offset = 8;
+        encodedFrames.forEach(buf => {
+            data.set(buf, offset);
+            offset += buf.length;
+        })
+
+        return btoa(pxt.sprite.uint8ArrayToHex(data))
+    }
+
+    export function addMissingTilemapTilesAndReferences(project: TilemapProject, asset: ProjectTilemap) {
+        const allTiles = project.getProjectTiles(asset.data.tileset.tileWidth, true);
+        asset.data.projectReferences = [];
+
+        for (const tile of allTiles.tiles) {
+            if (!asset.data.tileset.tiles.some(t => t.id === tile.id)) {
+                asset.data.tileset.tiles.push(tile);
+            }
+            if (project.isAssetUsed(tile, null, [asset.id])) {
+                asset.data.projectReferences.push(tile.id);
+            }
+        }
+    }
+
+    export function updateTilemapReferencesFromResult(project: TilemapProject, assetResult: ProjectTilemap) {
+        const result = assetResult.data;
+
+        if (result.deletedTiles) {
+            for (const deleted of result.deletedTiles) {
+                project.deleteTile(deleted);
+            }
+        }
+
+        if (result.editedTiles) {
+            for (const edit of result.editedTiles) {
+                const editedIndex = result.tileset.tiles.findIndex(t => t.id === edit);
+                const edited = result.tileset.tiles[editedIndex];
+
+                if (!edited) continue;
+
+                result.tileset.tiles[editedIndex] = project.updateTile(edited);
+            }
+        }
+
+        for (let i = 0; i < result.tileset.tiles.length; i++) {
+            const tile = result.tileset.tiles[i];
+
+            if (!tile.jresData) {
+                result.tileset.tiles[i] = project.resolveTile(tile.id);
+            }
+        }
+
+        pxt.sprite.trimTilemapTileset(result);
     }
 
     function imageLiteralPrologue(fileType: "typescript" | "python"): string {
@@ -659,6 +758,8 @@ namespace pxt.sprite {
     }
 
     export function bitmapToImageLiteral(bitmap: Bitmap, fileType: "typescript" | "python"): string {
+        if (!bitmap || bitmap.height === 0 || bitmap.width === 0) return "";
+
         let res = imageLiteralPrologue(fileType);
 
         if (bitmap) {
@@ -676,6 +777,10 @@ namespace pxt.sprite {
         res += imageLiteralEpilogue(fileType);
 
         return res;
+    }
+
+    export function bitmapEquals(a: pxt.sprite.BitmapData, b: pxt.sprite.BitmapData) {
+        return pxt.sprite.Bitmap.fromData(a).equals(pxt.sprite.Bitmap.fromData(b));
     }
 
     export function tileWidthToTileScale(tileWidth: number) {
@@ -697,14 +802,14 @@ namespace pxt.sprite {
         }
     }
 
-    function hexToUint8Array(hex: string) {
+    export function hexToUint8Array(hex: string) {
         let r = new Uint8ClampedArray(hex.length >> 1);
         for (let i = 0; i < hex.length; i += 2)
             r[i >> 1] = parseInt(hex.slice(i, i + 2), 16)
         return r
     }
 
-    export function uint8ArrayToHex(data: Uint8ClampedArray) {
+    export function uint8ArrayToHex(data: Uint8ClampedArray | Uint8Array) {
         const hex = "0123456789abcdef";
         let res = "";
         for (let i = 0; i < data.length; ++i) {
@@ -712,6 +817,11 @@ namespace pxt.sprite {
             res += hex[data[i] & 0xf];
         }
         return res;
+    }
+
+    function set16Bit(buf: Uint8ClampedArray, offset: number, value: number) {
+        buf[offset] = value & 0xff;
+        buf[offset + 1] = (value >> 8) & 0xff;
     }
 
     function colorStringToRGB(color: string) {

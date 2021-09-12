@@ -264,7 +264,7 @@ export class Toolbox extends data.Component<ToolboxProps, ToolboxState> {
         parent.moveFocusToFlyout();
     }
 
-    componentWillReceiveProps(props: ToolboxProps) {
+    UNSAFE_componentWillReceiveProps(props: ToolboxProps) {
         // if leaving monaco, mark toolbox animation as shown. also
         // handles full screen sim, where we hide the toolbox via css
         // without re-rendering, which will trigger the animation again
@@ -523,7 +523,7 @@ export class CategoryItem extends data.Component<CategoryItemProps, CategoryItem
         return this.treeRowElement;
     }
 
-    componentWillReceiveProps(nextProps: CategoryItemProps) {
+    UNSAFE_componentWillReceiveProps(nextProps: CategoryItemProps) {
         const newState: CategoryItemState = {};
         if (nextProps.selected != undefined) {
             newState.selected = nextProps.selected;
@@ -825,7 +825,9 @@ export interface TreeGroupProps {
 export class TreeGroup extends data.Component<TreeGroupProps, {}> {
     renderCore() {
         const { visible } = this.props;
-        return <div role="group" style={{ backgroundPosition: '0px 0px', 'display': visible ? '' : 'none' }}>
+        if (!this.props.children) return <div />;
+
+        return <div role="tree" style={{ backgroundPosition: '0px 0px', 'display': visible ? '' : 'none' }}>
             {this.props.children}
         </div>
     }
@@ -895,7 +897,7 @@ export class ToolboxSearch extends data.Component<ToolboxSearchProps, ToolboxSea
 
         // Execute search
         parent.searchAsync(searchTerm)
-            .done((blocks) => {
+            .then((blocks) => {
                 if (blocks.length == 0) {
                     searchAccessibilityLabel = lf("No search results...");
                 } else {

@@ -15,6 +15,7 @@ import * as toolbox from "./toolbox";
 import * as workspace from "./workspace";
 import * as blocklyFieldView from "./blocklyFieldView";
 import { ViewZoneEditorHost, ModalEditorHost, FieldEditorManager } from "./monacoFieldEditorHost";
+import * as data from "./data";
 
 import Util = pxt.Util;
 import { BreakpointCollection } from "./monacoDebugger";
@@ -24,6 +25,7 @@ import { amendmentToInsertSnippet, listenForEditAmendments, createLineReplacemen
 
 import { MonacoFlyout } from "./monacoFlyout";
 import { ErrorList } from "./errorList";
+import * as auth from "./auth";
 
 const MIN_EDITOR_FONT_SIZE = 10
 const MAX_EDITOR_FONT_SIZE = 40
@@ -166,15 +168,6 @@ class CompletionProvider implements monaco.languages.CompletionItemProvider {
         function tosort(i: number): string {
             return ("000" + i).slice(-4);
         }
-    }
-    /**
-     * Given a completion item fill in more data, like [doc-comment](#CompletionItem.documentation)
-     * or [details](#CompletionItem.detail).
-     *
-     * The editor will only resolve a completion item once.
-     */
-    resolveCompletionItem(model: monaco.editor.ITextModel, position: monaco.Position, item: monaco.languages.CompletionItem, token: monaco.CancellationToken): monaco.languages.CompletionItem | monaco.Thenable<monaco.languages.CompletionItem> {
-        return item
     }
 }
 
@@ -372,6 +365,13 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     private exceptionChangesListeners: pxt.Map<(exception: pxsim.DebuggerBreakpointMessage, locations: pxtc.LocationInfo[]) => void> = {}
     private callLocations: pxtc.LocationInfo[];
 
+    private userPreferencesSubscriber: data.DataSubscriber = {
+        subscriptions: [],
+        onDataChanged: () => {
+            this.onUserPreferencesChanged();
+        }
+    };
+
     private handleFlyoutWheel = (e: WheelEvent) => e.stopPropagation();
     private handleFlyoutScroll = (e: WheelEvent) => e.stopPropagation();
 
@@ -383,6 +383,15 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         this.listenToExceptionChanges = this.listenToExceptionChanges.bind(this)
         this.goToError = this.goToError.bind(this);
         this.startDebugger = this.startDebugger.bind(this)
+        this.onUserPreferencesChanged = this.onUserPreferencesChanged.bind(this);
+
+        data.subscribe(this.userPreferencesSubscriber, auth.HIGHCONTRAST);
+    }
+
+    onUserPreferencesChanged() {
+        const hc = data.getData<boolean>(auth.HIGHCONTRAST);
+
+        if (this.loadMonacoPromise) this.defineEditorTheme(hc, true);
     }
 
     hasBlocks() {
@@ -394,6 +403,11 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     public openBlocks() {
         pxt.tickEvent(`typescript.showBlocks`);
         let initPromise = Promise.resolve();
+
+        const isWinApp = pxt.BrowserUtils.isWinRT();
+        if (isWinApp) {
+            return;
+        }
 
         if (!this.currFile) {
             const mainPkg = pkg.mainEditorPkg();
@@ -516,7 +530,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 });
         });
 
-        core.showLoadingAsync("switchtoblocks", lf("switching to blocks..."), promise).done();
+        core.showLoadingAsync("switchtoblocks", lf("switching to blocks..."), promise);
     }
 
     public showBlockConversionFailedDialog(blockFile: string, programTooLarge: boolean): Promise<void> {
@@ -615,28 +629,52 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     display(): JSX.Element {
         const showErrorList = pxt.appTarget.appTheme.errorList;
         const isAndroid = pxt.BrowserUtils.isAndroid();
+        const isWinApp = pxt.BrowserUtils.isWinRT();
+        const textElements = isWinApp ? this.getWinAppErrorMsg(): [];
+
         return (
             <div id="monacoEditorArea" className={`monacoEditorArea ${isAndroid ? "android" : ""}`} style={{ direction: 'ltr' }}>
                 {this.isVisible && <div className={`monacoToolboxDiv ${(this.toolbox && !this.toolbox.state.visible && !this.isDebugging()) ? 'invisible' : ''}`}>
                     <toolbox.Toolbox ref={this.handleToolboxRef} editorname="monaco" parent={this} />
                     <div id="monacoDebuggerToolbox"></div>
                 </div>}
-                <div id="monacoEditorRightArea" className="monacoEditorRightArea">
-                    <div id='monacoEditorInner'>
-                        <MonacoFlyout ref={this.handleFlyoutRef} fileType={this.fileType}
-                            blockIdMap={this.blockIdMap}
-                            moveFocusToParent={this.moveFocusToToolbox}
-                            insertSnippet={this.insertSnippet}
-                            setInsertionSnippet={this.setInsertionSnippet}
-                            parent={this.parent} />
+
+                { isWinApp ?
+                    <div id="winAppError">
+                        <img className="ui medium centered image" alt={lf("An image of a shrugging board")} src={pxt.appTarget.appTheme.winAppDeprImage}/>
+                        <div className="ui centered" id="winAppErrorMsg">
+                            {textElements}
+                        </div>
+                    </div>:
+                    <div id="monacoEditorRightArea" className="monacoEditorRightArea">
+                        <div id='monacoEditorInner'>
+                            <MonacoFlyout ref={this.handleFlyoutRef} fileType={this.fileType}
+                                blockIdMap={this.blockIdMap}
+                                moveFocusToParent={this.moveFocusToToolbox}
+                                insertSnippet={this.insertSnippet}
+                                setInsertionSnippet={this.setInsertionSnippet}
+                                parent={this.parent} />
+                        </div>
+                        {showErrorList && <ErrorList isInBlocksEditor={false} onSizeChange={this.setErrorListState}
+                            listenToErrorChanges={this.listenToErrorChanges}
+                            listenToExceptionChanges={this.listenToExceptionChanges} goToError={this.goToError}
+                            startDebugger={this.startDebugger} />}
                     </div>
-                    {showErrorList && <ErrorList isInBlocksEditor={false} onSizeChange={this.setErrorListState}
-                        listenToErrorChanges={this.listenToErrorChanges}
-                        listenToExceptionChanges={this.listenToExceptionChanges} goToError={this.goToError}
-                        startDebugger={this.startDebugger} />}
-                </div>
+                }
             </div>
         )
+    }
+
+    getWinAppErrorMsg(): (JSX.Element | string)[] {
+        const errMsg = lf("Oops! Text editing is only available on the website at {0}. Go {1} for more information.", `https://${pxt.appTarget.name}`, "{1}");
+        const parts = errMsg.split(/\{\d\}/);
+        const textElements: (JSX.Element | string)[] = [
+            parts[0],
+            <a href={"/windows-app"} target="_blank" rel="noopener noreferrer">
+                {lf("here")}
+            </a>,
+            parts[1]]
+        return textElements;
     }
 
     listenToExceptionChanges(handlerKey: string, handler: (exception: pxsim.DebuggerBreakpointMessage, locations: pxtc.LocationInfo[]) => void) {
@@ -771,7 +809,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     }
 
     setHighContrast(hc: boolean) {
-        if (this.loadMonacoPromise) this.defineEditorTheme(hc, true);
+        // handled by onUserPreferencesChanged
     }
 
     beforeCompile() {
@@ -781,9 +819,17 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     }
 
     isIncomplete() {
-        return this.editor && (this.editor as any)._view ?
-            (this.editor as any)._view.contentWidgets._widgets["editor.widget.suggestWidget"].isVisible :
-            false;
+        if (this.editor && (this.editor as any)._view &&
+            (this.editor as any)._view.contentWidgets._widgets["editor.widget.suggestWidget"].isVisible)
+            return true;
+
+        // broken pxt.json, don't save
+        if (this.editor &&
+            this.currFile.name === pxt.CONFIG_NAME
+            && !Util.jsonTryParse(this.getCurrentSource()))
+            return true;
+
+        return false;
     }
 
     resize(e?: Event) {
@@ -935,7 +981,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 }
                 // Update widgets
                 const toolbox = document.getElementById('monacoToolboxDiv');
-                if (toolbox) toolbox.style.height = `${this.editor.getLayoutInfo().contentHeight}px`;
+                if (toolbox) toolbox.style.height = `${this.editor.getLayoutInfo().height}px`;
             })
 
             const monacoEditorInner = document.getElementById('monacoEditorInner');
@@ -961,11 +1007,6 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             monaco.languages.registerHoverProvider("python", new HoverProvider(this, true));
             monaco.languages.registerDocumentRangeFormattingEditProvider("python", new FormattingProvider(this, true));
             monaco.languages.setLanguageConfiguration("python", pythonLanguageConfiguration)
-
-            monaco.languages.registerCompletionItemProvider("typescript", new CompletionProvider(this, false));
-            monaco.languages.registerSignatureHelpProvider("typescript", new SignatureHelper(this, false));
-            monaco.languages.registerHoverProvider("typescript", new HoverProvider(this, false));
-            monaco.languages.registerDocumentRangeFormattingEditProvider("typescript", new FormattingProvider(this, false));
 
             this.editorViewZones = [];
 
@@ -1124,7 +1165,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 snippetPromise = initPromise.then(() => compiler.snippetAsync(snippetQName, isPython));
             }
 
-            snippetPromise.done(snippet => {
+            snippetPromise.then(snippet => {
                 let mouseTarget = this.editor.getTargetAtClientPoint(pxt.BrowserUtils.getClientX(ev), pxt.BrowserUtils.getClientY(ev));
                 let position = mouseTarget.position;
                 pxt.tickEvent(`monaco.toolbox.insertsnippet`);
@@ -1299,6 +1340,13 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         let mode = pxt.editor.FileType.Text;
         this.currSource = file.content;
 
+
+        const isWinApp = pxt.BrowserUtils.isWinRT();
+        if (isWinApp) {
+            this.currFile = file;
+            return Promise.resolve();
+        }
+
         let loading = document.createElement("div");
         loading.className = "ui inverted loading dimmer active";
         let editorRightArea = document.getElementById("monacoEditorRightArea");
@@ -1418,6 +1466,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 return this.foldFieldEditorRangesAsync()
             }).finally(() => {
                 editorRightArea.removeChild(loading);
+                // Do Not Remove: This is used by the skillmap
+                if (this.parent.isTutorial()) pxt.tickEvent("tutorial.editorLoaded")
             });
     }
 
@@ -1490,8 +1540,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     }
 
     setDiagnostics(file: pkg.File, snapshot: string[]) {
-        Util.assert(this.editor != undefined); // Guarded
-        Util.assert(this.currFile == file)
+        if (!this.editor || this.currFile !== file)  // async outdated set diagnostics
+            return;
         this.diagSnapshot = snapshot
         this.forceDiagnosticsUpdate()
     }

@@ -15,9 +15,11 @@ import * as blocklyFieldView from "./blocklyFieldView";
 import { CreateFunctionDialog } from "./createFunction";
 import { initializeSnippetExtensions } from './snippetBuilder';
 
+
 import Util = pxt.Util;
 import { DebuggerToolbox } from "./debuggerToolbox";
 import { ErrorList } from "./errorList";
+import { resolveExtensionUrl } from "./extensionManager";
 
 export class Editor extends toolboxeditor.ToolboxEditor {
     editor: Blockly.WorkspaceSvg;
@@ -122,8 +124,21 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             return pxt.blocks.compileAsync(this.editor, this.blockInfo, { emitTilemapLiterals: willOpenTypeScript })
                 .then((compilationResult) => {
                     this.compilationResult = compilationResult;
-                    pxt.tickActivity("blocks.compile");
-                    return this.compilationResult.source;
+                    pxt.tickEvent("activity.blocks.compile");
+
+                    let next = Promise.resolve();
+                    if (willOpenTypeScript && this.parent) {
+                        // If we are opening TypeScript, clean up the temporary assets
+                        // We need to do these steps in this order:
+                        //   1. Remove the block data elements for each field
+                        //   2. Save the XML with the blocks data removed (otherwise reloading the blocks will break)
+                        //   3. Dispose of the temporary assets themselves
+                        clearTemporaryAssetBlockData(this.editor)
+                        next = this.parent.saveCurrentSourceAsync()
+                            .then(() => disposeOfTemporaryAssets(this.editor))
+                    }
+
+                    return next.then(() => this.compilationResult.source)
                 });
         } catch (e) {
             pxt.reportException(e)
@@ -168,16 +183,16 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                     Blockly.svgResize(this.editor);
                     this.isFirstBlocklyLoad = false;
                 }).finally(() => {
-                    this.loadingXml = false
                     try {
                         // It's possible Blockly reloads and the loading dimmer is no longer a child of the editorDiv
                         editorDiv.removeChild(loadingDimmer);
                     } catch { }
+                    this.loadingXml = false;
+                    this.loadingXmlPromise = null;
                     pxt.perf.measureEnd("domUpdate loadBlockly")
+                    // Do Not Remove: This is used by the skillmap
+                    if (this.parent.isTutorial()) pxt.tickEvent("tutorial.editorLoaded")
                 });
-
-            this.loadingXmlPromise.done();
-            this.loadingXmlPromise = null;
         }
     }
 
@@ -196,6 +211,18 @@ export class Editor extends toolboxeditor.ToolboxEditor {
 
         Blockly.DropDownDiv.hide();
         Blockly.WidgetDiv.hide();
+    }
+
+    getTemporaryAssets(): pxt.Asset[] {
+        if (!this.editor) return [];
+
+        return pxtblockly.getTemporaryAssets(this.editor, pxt.AssetType.Image)
+            .concat(pxtblockly.getTemporaryAssets(this.editor, pxt.AssetType.Animation))
+    }
+
+    updateTemporaryAsset(asset: pxt.Asset) {
+        const block = this.editor.getBlockById(asset.meta.temporaryInfo.blockId);
+        (block.getField(asset.meta.temporaryInfo.fieldName) as pxtblockly.FieldAssetEditor<any, any>).updateAsset(asset);
     }
 
     private saveBlockly(): string {
@@ -481,6 +508,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     private prepareBlockly(forceHasCategories?: boolean) {
         pxt.perf.measureStart("prepareBlockly")
         let blocklyDiv = document.getElementById('blocksEditor');
+        if (!blocklyDiv)
+            return;
         pxsim.U.clear(blocklyDiv);
         this.editor = Blockly.inject(blocklyDiv, this.getBlocklyOptions(forceHasCategories)) as Blockly.WorkspaceSvg;
         const hasCategories = (this.editor.options as any).hasCategories;
@@ -506,7 +535,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 if (blockId === pxtc.TS_STATEMENT_TYPE || blockId === pxtc.TS_OUTPUT_TYPE) {
                     this.updateGrayBlocks();
                 }
-                pxt.tickEvent("blocks.create", { "block": blockId });
+                pxt.tickEvent("blocks.create", { "block": blockId }, { interactiveConsent: true });
                 if (ev.xml.tagName == 'SHADOW')
                     this.cleanUpShadowBlocks();
                 if (!this.parent.state.tutorialOptions || !this.parent.state.tutorialOptions.metadata || !this.parent.state.tutorialOptions.metadata.flyoutOnly)
@@ -521,14 +550,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             else if (ev.type == 'ui') {
                 if (ev.element == 'category') {
                     let toolboxVisible = !!ev.newValue;
-                    if (toolboxVisible) {
-                        // WARNING! Because we use the category open/close event to dismiss
-                        // the cookie banner, be careful when manipulating the toolbox to make
-                        // sure that this event only fires as the result of user action. Use
-                        // Blockly.Events.disable() and Blockly.Events.enable() to prevent
-                        // UI events from firing.
-                        pxt.analytics.enableCookies();
-                    }
+                    if (toolboxVisible) pxt.setInteractiveConsent(true);
                     this.parent.setState({ hideEditorFloats: toolboxVisible });
                 } else if (ev.element == 'breakpointSet') {
                     this.setBreakpointsFromBlocks();
@@ -684,6 +706,14 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         }
     }
 
+    async validateTutorialCode(tutorial: pxt.tutorial.TutorialOptions) {
+        // Current tutorial step
+        const { tutorialStep } = tutorial;
+        const blocks = this.editor.getAllBlocks();
+        const tutorialRulesValidated: pxt.tutorial.TutorialRuleStatus[] = await pxt.tutorial.validate(tutorial, blocks, this.blockInfo);
+        this.parent.setTutorialCodeStatus(tutorialStep, tutorialRulesValidated);
+    }
+
     getBlocksAreaDiv() {
         return document.getElementById('blocksArea');
     }
@@ -810,11 +840,11 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 .then(() => {
                     // Initialize the "Make a function" button
                     Blockly.Functions.editFunctionExternalHandler = (mutation: Element, cb: Blockly.Functions.ConfirmEditCallback) => {
-                        Promise.delay(10)
+                        Util.delay(10)
                             .then(() => {
                                 if (!this.functionsDialog) {
                                     const wrapper = document.body.appendChild(document.createElement('div'));
-                                    this.functionsDialog = ReactDOM.render(React.createElement(CreateFunctionDialog), wrapper) as CreateFunctionDialog;
+                                    this.functionsDialog = ReactDOM.render(React.createElement(CreateFunctionDialog, { parent: this.parent }), wrapper) as CreateFunctionDialog;
                                 }
                                 this.functionsDialog.show(mutation, cb, this.editor);
                             });
@@ -857,9 +887,10 @@ export class Editor extends toolboxeditor.ToolboxEditor {
 
     loadFileAsync(file: pkg.File): Promise<void> {
         Util.assert(!this.delayLoadXml);
-        Util.assert(!this.loadingXmlPromise);
+        const init = this.loadingXmlPromise || Promise.resolve();
 
-        return this.loadBlocklyAsync()
+        return init
+            .then(() => this.loadBlocklyAsync())
             .then(() => {
                 pxt.blocks.cleanBlocks();
 
@@ -886,11 +917,12 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                     searchField.value = '';
                 }
                 // Get extension packages
-                this.extensions = pkg.allEditorPkgs()
-                    .map(ep => ep.getKsPkg())
-                    // Make sure the package has extensions enabled, and is a github package.
-                    // Extensions are limited to github packages and ghpages, as we infer their url from the installedVersion config
-                    .filter(p => !!p && p.config && !!p.config.extension && /^(file:|github:)/.test(p.installedVersion));
+                this.extensions = (!!pxt.appTarget.appTheme.allowPackageExtensions
+                    && pkg.allEditorPkgs()
+                        .map(ep => ep.getKsPkg())
+                        // Make sure the package has extensions enabled.
+                        .filter(p => !!p?.config?.extension))
+                    || [];
             })
     }
 
@@ -993,7 +1025,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         if (!this.parent.state.debugging) return;
 
         if (this.debuggerToolbox) {
-            const visibleVars = Blockly.Variables.allUsedVarModels(this.editor).map((variable: any) => variable.name as string);
+            const visibleVars = Blockly.Variables.allUsedVarModels(this.editor)
+                .map((variable: Blockly.VariableModel) => pxtc.escapeIdentifier(variable.name));
 
             this.debuggerToolbox.setBreakpoint(brk, visibleVars);
         }
@@ -1007,13 +1040,13 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     openTypeScript() {
         pxt.tickEvent("blocks.showjavascript");
         this.parent.closeFlyout();
-        this.parent.openTypeScriptAsync().done();
+        this.parent.openTypeScriptAsync();
     }
 
     openPython() {
         pxt.tickEvent("blocks.showpython");
         this.parent.closeFlyout();
-        this.parent.openPythonAsync().done();
+        this.parent.openPythonAsync();
     }
 
     private cleanUpShadowBlocks() {
@@ -1105,20 +1138,25 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 // If we're switching from a toolbox to no toolbox, unmount node
                 ReactDOM.unmountComponentAtNode(this.getBlocklyToolboxDiv());
             }
-            // Refresh Blockly
-            this.delayLoadXml = this.getCurrentSource();
-            this.editor = undefined;
-            this.loadingXml = false;
+
+            const refreshBlockly = () => {
+                this.delayLoadXml = this.getCurrentSource();
+                this.editor = undefined;
+                this.prepareBlockly(hasCategories);
+                this.domUpdate();
+                this.editor.scrollCenter();
+                if (hasCategories) {
+                    // If we're switching from no toolbox to a toolbox, mount node
+                    this.renderToolbox(true);
+                }
+            };
+
             if (this.loadingXmlPromise) {
-                this.loadingXmlPromise.cancel();
-                this.loadingXmlPromise = null;
-            }
-            this.prepareBlockly(hasCategories);
-            this.domUpdate();
-            this.editor.scrollCenter();
-            if (hasCategories) {
-                // If we're switching from no toolbox to a toolbox, mount node
-                this.renderToolbox(true);
+                // enqueue refresh if currently loading
+                this.loadingXmlPromise
+                    .then(refreshBlockly);
+            } else {
+                refreshBlockly();
             }
         }
         pxt.perf.measureEnd("refreshToolbox")
@@ -1129,22 +1167,23 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         this.refreshToolbox();
     }
 
-    private openExtension(extensionName: string) {
-        const extension = this.extensions.filter(c => c.config.name == extensionName)[0];
-        const parsedRepo = pxt.github.parseRepoId(extension.installedVersion);
-        pxt.packagesConfigAsync()
-            .then((packagesConfig) => {
-                const extensionConfig = extension.config;
-                const repoStatus = pxt.github.repoStatus(parsedRepo, packagesConfig);
-                const repoName = parsedRepo.fullName.substr(parsedRepo.fullName.indexOf(`/`) + 1);
-                const localDebug = pxt.BrowserUtils.isLocalHost() && /^file:/.test(extension.installedVersion) && extensionConfig.extension.localUrl;
-                const debug = pxt.BrowserUtils.isLocalHost() && /debugExtensions/i.test(window.location.href);
-                /* tslint:disable:no-http-string */
-                const url = debug ? "http://localhost:3232/extension.html"
-                    : localDebug ? extensionConfig.extension.localUrl : `https://${parsedRepo.owner}.github.io/${repoName}/`;
-                /* tslint:enable:no-http-string */
-                this.parent.openExtension(extensionConfig.name, url, repoStatus == 0); // repoStatus can only be APPROVED or UNKNOWN at this point
-            });
+    private async openExtension(extensionName: string) {
+        const pkg = this.extensions.filter(c => c.config.name === extensionName)[0];
+        if (!pkg?.config.extension)
+            return;
+        pxt.tickEvent('blocks.extensions.open', { extension: extensionName })
+
+        const { name, url, trusted } = await resolveExtensionUrl(pkg);
+
+        // should never happen
+        if (!trusted) {
+            core.errorNotification(lf("Sorry, this extension is not allowed."))
+            pxt.tickEvent('blocks.extensions.untrusted', { extension: extensionName })
+            return;
+        }
+
+        pxt.tickEvent('blocks.extensions.trusted', { extension: extensionName })
+        this.parent.openExtension(name, url);
     }
 
     private partitionBlocks() {
@@ -1331,7 +1370,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                         attributes: {
                             blockId: `EXT${name}_BUTTON`,
                             label: config.extension.label ? Util.rlf(config.extension.label) : Util.lf("Editor"),
-                            weight: 101
+                            weight: 101,
+                            group: config.extension.group
                         },
                         callback: () => {
                             this.openExtension(name);
@@ -1713,9 +1753,9 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                     let type = shadow.getAttribute('type');
                     const builtin = snippets.allBuiltinBlocks()[type];
                     let b = this.getBlockXml(builtin ? builtin : { name: type, attributes: { blockId: type } }, ignoregap, true);
-                    /* tslint:disable:no-inner-html setting one element's contents to the other */
+                    // Note: we're setting one innerHTML to another
+                    // eslint-disable-next-line @microsoft/sdl/no-inner-html
                     if (b && b.length > 0 && b[0]) shadow.innerHTML = b[0].innerHTML;
-                    /* tslint:enable:no-inner-html */
                 })
         }
         return [blockXml];
@@ -1753,4 +1793,27 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         });
         this.editor.setDebugModeOption(debugging);
     }
+}
+
+function forEachImageField(workspace: Blockly.Workspace, cb: (asset: pxtblockly.FieldAssetEditor<any, any>) => void) {
+    const blocks = workspace.getAllBlocks(false);
+
+    for (const block of blocks) {
+        for (const input of block.inputList) {
+            for (const field of input.fieldRow) {
+                // No need to check for tilemap editor because those are never temporary
+                if (field instanceof pxtblockly.FieldSpriteEditor || field instanceof pxtblockly.FieldAnimationEditor) {
+                    cb(field)
+                }
+            }
+        }
+    }
+}
+
+function disposeOfTemporaryAssets(workspace: Blockly.Workspace) {
+    forEachImageField(workspace, field => field.disposeOfTemporaryAsset());
+}
+
+function clearTemporaryAssetBlockData(workspace: Blockly.Workspace) {
+    forEachImageField(workspace, field => field.clearTemporaryAssetData());
 }

@@ -230,8 +230,9 @@ namespace ts.pxtc.Util {
     }
 
     export function pushRange<T>(trg: T[], src: ArrayLike<T>): void {
-        for (let i = 0; i < src.length; ++i)
-            trg.push(src[i])
+        if (src)
+            for (let i = 0; i < src.length; ++i)
+                trg.push(src[i])
     }
 
     // TS gets lost in type inference when this is passed an array
@@ -372,6 +373,56 @@ namespace ts.pxtc.Util {
         return str.split(old).join(new_);
     }
 
+    export function snakify(s: string) {
+        const up = s.toUpperCase()
+        const lo = s.toLowerCase()
+
+        // if the name is all lowercase or all upper case don't do anything
+        if (s == up || s == lo)
+            return s
+
+        // if the name already has underscores (not as first character), leave it alone
+        if (s.lastIndexOf("_") > 0)
+            return s
+
+        const isUpper = (i: number) => s[i] != lo[i]
+        const isLower = (i: number) => s[i] != up[i]
+        //const isDigit = (i: number) => /\d/.test(s[i])
+
+        let r = ""
+        let i = 0
+        while (i < s.length) {
+            let upperMode = isUpper(i)
+            let j = i
+            while (j < s.length) {
+                if (upperMode && isLower(j)) {
+                    // ABCd -> AB_Cd
+                    if (j - i > 2) {
+                        j--
+                        break
+                    } else {
+                        // ABdefQ -> ABdef_Q
+                        upperMode = false
+                    }
+                }
+                // abcdE -> abcd_E
+                if (!upperMode && isUpper(j)) {
+                    break
+                }
+                j++
+            }
+            if (r) r += "_"
+            r += s.slice(i, j)
+            i = j
+        }
+
+        // If the name is is all caps (like a constant), preserve it
+        if (r.toUpperCase() === r) {
+            return r;
+        }
+        return r.toLowerCase();
+    }
+
     export function sortObjectFields<T>(o: T): T {
         let keys = Object.keys(o)
         keys.sort(strcmp)
@@ -444,14 +495,138 @@ namespace ts.pxtc.Util {
         return -1;
     }
 
+    const _nextTickResolvedPromise = Promise.resolve();
     export function nextTick(f: () => void) {
-        (<any>Promise)._async._schedule(f)
+        // .then should run as a microtask / at end of loop
+        _nextTickResolvedPromise.then(f);
     }
 
+    export async function delay<T>(duration: number, value: T | Promise<T>): Promise<T>;
+    export async function delay(duration: number): Promise<void>
+    export async function delay<T>(duration: number, value?: T | Promise<T>): Promise<T> {
+        // eslint-disable-next-line
+        const output = await value;
+        await new Promise<void>(resolve => setTimeout(() => resolve(), duration));
+        return output;
+    }
+
+    export function promiseMapAll<T, V>(values: T[], mapper: (obj: T) => Promise<V>): Promise<V[]> {
+        return Promise.all(values.map(v => mapper(v)));
+    }
+
+    export function promiseMapAllSeries<T, V>(values: T[], mapper: (obj: T) => Promise<V>): Promise<V[]> {
+        return promisePoolAsync(1, values, mapper);
+    }
+
+    export async function promisePoolAsync<T, V>(maxConcurrent: number, inputValues: T[], handler: (input: T) => Promise<V>): Promise<V[]> {
+        let curr = 0;
+        const promises = [];
+        const output: V[] = [];
+
+        for (let i = 0; i < maxConcurrent; i++) {
+            const thread = (async () => {
+                while (curr < inputValues.length) {
+                    const id = curr++;
+                    const input = inputValues[id];
+                    output[id] = await handler(input);
+                }
+            })();
+
+            promises.push(thread);
+        }
+
+        try {
+            await Promise.all(promises);
+        } catch (e) {
+            // do not spawn any more promises after pool failed.
+            curr = inputValues.length;
+            throw e;
+        }
+
+        return output;
+    }
 
     export function memoizeString<T>(createNew: (id: string) => T): (id: string) => T {
         return memoize(s => s, createNew)
     }
+
+    export async function promiseTimeout<T>(ms: number, promise: T | Promise<T>, msg?: string): Promise<T> {
+        let timeoutId: number;
+        let res: (v?: T | PromiseLike<T>) => void;
+
+        const timeoutPromise: Promise<T> = new Promise((resolve, reject) => {
+            res = resolve;
+            timeoutId = setTimeout(() => {
+                res = undefined;
+                clearTimeout(timeoutId);
+                reject(msg || `Promise timed out after ${ms}ms`);
+            }, ms);
+        });
+
+        return Promise.race([ promise, timeoutPromise ])
+            .then(output => {
+                // clear any dangling timeout
+                if (res) {
+                    clearTimeout(timeoutId);
+                    res();
+                }
+                return <T>output;
+            });
+    }
+
+    export interface DeferredPromise<T> {
+        resolve: (value: T) => void;
+        reject: (reason: any) => void;
+        promise: Promise<T>;
+    }
+
+    export function defer<T>(): DeferredPromise<T> {
+        let result: T | Promise<T>;
+        let resolve: (value?: unknown) => void;
+        let reject: (reason?: any) => void;
+        let isResolved = false;
+
+        return {
+            resolve: function (value: T) {
+                if (isResolved) {
+                    pxt.debug("Deferred promise already resolved");
+                    return;
+                }
+
+                if (resolve) {
+                    resolve(value);
+                } else {
+                    result = result || new Promise(function (r) { r(value); });
+                }
+
+                isResolved = true;
+            },
+
+            reject: function (reason: any) {
+                if (isResolved) {
+                    pxt.debug("Deferred promise already resolved");
+                    return;
+                }
+
+                if (reject) {
+                    reject(reason);
+                } else {
+                    result = result || new Promise(function (_, j) { j(reason); });
+                }
+
+                isResolved = true;
+            },
+
+            promise: new Promise<T>(function (r, j) {
+                if (result) {
+                    r(result);
+                } else {
+                    resolve = r;
+                    reject = j;
+                }
+            })
+        };
+    };
 
     export function memoize<S, T>(getId: (v: S) => string, createNew: (v: S) => T): (id: S) => T {
         const cache: pxt.Map<T> = {}
@@ -650,6 +825,7 @@ namespace ts.pxtc.Util {
         responseArrayBuffer?: boolean;
         forceLiveEndpoint?: boolean;
         successCodes?: number[];
+        withCredentials?: boolean;
     }
 
     export interface HttpResponse {
@@ -834,7 +1010,7 @@ namespace ts.pxtc.Util {
                     }
                     this.waiting.push(f)
                     if (timeout > 0) {
-                        Promise.delay(timeout)
+                        U.delay(timeout)
                             .then(() => {
                                 let idx = this.waiting.indexOf(f)
                                 if (idx >= 0) {
@@ -847,34 +1023,16 @@ namespace ts.pxtc.Util {
         }
     }
 
-    export async function promisePoolAsync<T, V>(maxConcurrent: number, inputValues: T[], handler: (input: T) => Promise<V>): Promise<V[]> {
-        let curr = 0;
-        const promises = [];
-        const output: V[] = [];
-
-        for (let i = 0; i < maxConcurrent; i++) {
-            const thread = (async () => {
-                while (curr < inputValues.length) {
-                    const id = curr++;
-                    const input = inputValues[id];
-                    output[id] = await handler(input);
-                }
-            })();
-
-            promises.push(thread);
-        }
-
-        await Promise.all(promises);
-
-        return output;
-    }
-
     export function now(): number {
         return Date.now();
     }
 
     export function nowSeconds(): number {
         return Math.round(now() / 1000)
+    }
+
+    export function timeout(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(() => resolve(), ms))
     }
 
     // node.js overrides this to use process.cpuUsage()
@@ -969,7 +1127,7 @@ namespace ts.pxtc.Util {
                     // update expired entries
                     const dt = (Date.now() - entry.time) / 1000;
                     if (dt > 300) // 5min caching time before trying etag again
-                        downloadFromCloudAsync(entry.strings).done();
+                        downloadFromCloudAsync(entry.strings);
                     return entry.strings;
                 } else
                     return downloadFromCloudAsync();
@@ -1069,7 +1227,24 @@ namespace ts.pxtc.Util {
         return false;
     }
 
-    export function updateLocalizationAsync(targetId: string, baseUrl: string, code: string, pxtBranch: string, targetBranch: string, live?: boolean, force?: boolean): Promise<void> {
+    interface LocalizationUpdateOptions {
+        targetId: string;
+        baseUrl: string;
+        code: string;
+        pxtBranch: string;
+        targetBranch: string;
+        force?: boolean;
+    }
+
+    export function updateLocalizationAsync(opts: LocalizationUpdateOptions): Promise<void> {
+        const {
+            targetId,
+            baseUrl,
+            pxtBranch,
+            targetBranch,
+            force,
+        } = opts;
+        let { code } = opts;
         code = normalizeLanguageCode(code)[0];
         if (code === "en-US")
             code = "en"; // special case for built-in language
@@ -1079,34 +1254,34 @@ namespace ts.pxtc.Util {
         }
 
         pxt.debug(`loc: ${code}`);
+
+        const liveUpdateStrings = pxt.Util.liveLocalizationEnabled()
         return downloadTranslationsAsync(targetId, baseUrl, code,
-            pxtBranch, targetBranch, live,
+            pxtBranch, targetBranch, liveUpdateStrings,
             ts.pxtc.Util.TranslationsKind.Editor)
             .then((translations) => {
                 if (translations) {
                     setUserLanguage(code);
                     setLocalizedStrings(translations);
-                    if (live) {
-                        localizeLive = true;
-                    }
                 }
 
                 // Download api translations
-                return !live ? ts.pxtc.Util.downloadTranslationsAsync(
+                return ts.pxtc.Util.downloadTranslationsAsync(
                     targetId, baseUrl, code,
-                    pxtBranch, targetBranch, live,
+                    pxtBranch, targetBranch, liveUpdateStrings,
                     ts.pxtc.Util.TranslationsKind.Apis)
                     .then(trs => {
                         if (trs)
                             ts.pxtc.apiLocalizationStrings = trs;
-                    }) : Promise.resolve();
+                    });
             });
     }
 
     export enum TranslationsKind {
         Editor,
         Sim,
-        Apis
+        Apis,
+        SkillMap
     }
 
     export function downloadTranslationsAsync(targetId: string, baseUrl: string, code: string, pxtBranch: string, targetBranch: string, live: boolean, translationKind?: TranslationsKind): Promise<pxt.Map<string>> {
@@ -1134,6 +1309,9 @@ namespace ts.pxtc.Util {
             case TranslationsKind.Apis:
                 stringFiles = [{ branch: targetBranch, staticName: "bundled-strings.json", path: targetId + "/bundled-strings.json" }];
                 break;
+            case TranslationsKind.SkillMap:
+                stringFiles = [{ branch: targetBranch, staticName: "skillmap-strings.json", path: "/skillmap-strings.json" }];
+                break;
         }
         let translations: pxt.Map<string>;
         function mergeTranslations(tr: pxt.Map<string>) {
@@ -1149,7 +1327,7 @@ namespace ts.pxtc.Util {
         if (live) {
             let errorCount = 0;
 
-            const pAll = Promise.mapSeries(stringFiles, (file) => downloadLiveTranslationsAsync(code, file.path, file.branch)
+            const pAll = U.promiseMapAllSeries(stringFiles, (file) => downloadLiveTranslationsAsync(code, file.path, file.branch)
                 .then(mergeTranslations, e => {
                     console.log(e.message);
                     ++errorCount;
@@ -1364,7 +1542,8 @@ namespace ts.pxtc.Util {
                 const imgdat = ctx.getImageData(0, 0, canvas.width, canvas.height)
                 const d = imgdat.data
                 const bpp = (d[0] & 1) | ((d[1] & 1) << 1) | ((d[2] & 1) << 2)
-                if (bpp > 5)
+                // Safari sometimes just reads a buffer full of 0's so we also need to bail if bpp == 0
+                if (bpp > 5 || bpp == 0)
                     return Promise.reject(new Error(lf("Invalid encoded PNG format")))
 
                 function decode(ptr: number, bpp: number, trg: Uint8Array) {
@@ -1432,6 +1611,8 @@ namespace ts.pxtc.BrowserImpl {
             client = new XMLHttpRequest();
             if (options.responseArrayBuffer)
                 client.responseType = "arraybuffer";
+            if (options.withCredentials)
+                client.withCredentials = true;
             client.onreadystatechange = () => {
                 if (resolved) return // Safari/iOS likes to call this thing more than once
 

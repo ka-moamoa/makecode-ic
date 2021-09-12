@@ -1,6 +1,13 @@
 # Microsoft MakeCode Blog
 
-* [Blog](/blog)
+* [Blog](/blog)    
+    * [Beginner Skillmap Has Launched!](/blog/arcade/beginner-skillmap)
+    * [New Free Curriculum! AP CSP with MakeCode](/blog/csp/new-free-curriculum)
+    * [MakeCode Arcade Spring Update!](/blog/arcade/update-spring-2021)
+    * [MakeCode Arcade 1st Birthday Update!](/blog/arcade/update-jan-2021)
+    * [Fun MakeCode stuff for CS Education Week 2020](/blog/csed-week/csed-week-2020)
+    * [micro:bit V2 Release](/blog/microbit/microbit-V2)
+    * [micro:bit shield for MakeCode Arcade](/blog/microbit/arcade-shield)
     * [Microsoft TileCode: Design, Code, and Play Games on MakeCode Arcade Devices](blog/arcade/tilecode)
     * [MakeCode Arcade Update](/blog/arcade/update-july-2020)
     * [MakeCode for the micro:bit – 2020 Release](/blog/microbit/2020-release)

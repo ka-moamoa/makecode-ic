@@ -4,7 +4,7 @@ import * as workspace from "./workspace";
 
 import U = pxt.Util;
 
-function setDiagnostics(diagnostics: pxtc.KsDiagnostic[], sourceMap?: pxtc.SourceInterval[]) {
+function setDiagnostics(operation: "compile" | "decompile" | "typecheck", diagnostics: pxtc.KsDiagnostic[], sourceMap?: pxtc.SourceInterval[]) {
     let mainPkg = pkg.mainEditorPkg();
 
     mainPkg.forEachFile(f => f.diagnostics = [])
@@ -60,6 +60,27 @@ function setDiagnostics(diagnostics: pxtc.KsDiagnostic[], sourceMap?: pxtc.Sourc
     const errors = diagnostics.filter(d => d.category == ts.pxtc.DiagnosticCategory.Error);
     f.numDiagnosticsOverride = errors.length
     reportDiagnosticErrors(errors);
+
+    // send message to editor controller if any
+    if (pxt.editor.shouldPostHostMessages()) {
+        pxt.editor.postHostMessageAsync({
+            type: "pxthost",
+            action: "workspacediagnostics",
+            operation,
+            output,
+            diagnostics: diagnostics.map(diag => ({
+                code: diag.code,
+                category: ts.pxtc.DiagnosticCategory[diag.category].toLowerCase(),
+                fileName: diag.fileName,
+                start: diag.start,
+                length: diag.length,
+                line: diag.line,
+                column: diag.column,
+                endLine: diag.endLine,
+                endColumn: diag.endColumn
+            }))
+        } as pxt.editor.EditorWorkspaceDiagnostics);
+    }
 }
 
 let lastErrorCounts: string = "";
@@ -70,7 +91,9 @@ function reportDiagnosticErrors(errors: pxtc.KsDiagnostic[]) {
         errors.filter(err => err.code).forEach(err => counts[err.code] = (counts[err.code] || 0) + 1);
         const errorCounts = JSON.stringify(errors);
         if (errorCounts !== lastErrorCounts) {
-            pxt.tickEvent("diagnostics", counts);
+            for (const errorCode of Object.keys(counts)) {
+                pxt.tickEvent("diagnostics", { errorCode, count: counts[errorCode] });
+            }
             lastErrorCounts = errorCounts;
         }
     } else {
@@ -132,7 +155,7 @@ export function emptyCompileResult(): pxtc.CompileResult {
 export function compileAsync(options: CompileOptions = {}): Promise<pxtc.CompileResult> {
     let trg = pkg.mainPkg.getTargetOptions()
     trg.isNative = options.native
-    return pkg.mainEditorPkg().buildTilemapsAsync()
+    return pkg.mainEditorPkg().buildAssetsAsync()
         .then(() => pkg.mainPkg.getCompileOptionsAsync(trg))
         .then(opts => {
             if (options.debug) {
@@ -181,7 +204,7 @@ ${resp.outfiles[pxtc.BINARY_JS]}`;
             }
 
             pkg.mainEditorPkg().outputPkg.setFiles(resp.outfiles)
-            setDiagnostics(resp.diagnostics)
+            setDiagnostics("compile", resp.diagnostics)
 
             return ensureApisInfoAsync()
                 .then(() => {
@@ -263,7 +286,7 @@ export function decompileAsync(fileName: string, blockInfo?: ts.pxtc.BlocksInfo,
                 resp.outfiles[blockFile] = newXml;
             }
             pkg.mainEditorPkg().outputPkg.setFiles(resp.outfiles)
-            setDiagnostics(resp.diagnostics)
+            setDiagnostics("decompile", resp.diagnostics)
             return resp
         })
 }
@@ -315,39 +338,6 @@ export function pySnippetToBlocksAsync(code: string, blockInfo?: ts.pxtc.BlocksI
         });
 }
 
-// Py[] -> blocks
-export function pySnippetArrayToBlocksAsync(code: string[], blockInfo?: ts.pxtc.BlocksInfo): Promise<pxtc.CompileResult> {
-    const namespaceRegex = /^\s*namespace\s+[^\s]+\s*{([\S\s]*)}\s*$/im;
-    const snippetBlocks = "main.blocks";
-    let trg = pkg.mainPkg.getTargetOptions()
-    let files: string[] = [];
-    return waitForFirstTypecheckAsync()
-        .then(() => pkg.mainPkg.getCompileOptionsAsync(trg))
-        .then(opts => {
-            // split each code snippet into a separate file to preserve scoping
-            for (let i = 0; i < code.length; i++) {
-                const snippetName = `snippet_${i}`;
-                opts.fileSystem[snippetName + ".py"] = code[i];
-                opts.sourceFiles.push(snippetName + ".py");
-                files.push(snippetName)
-            }
-            opts.fileSystem[snippetBlocks] = "";
-            if (opts.sourceFiles.indexOf(snippetBlocks) === -1) {
-                opts.sourceFiles.push(snippetBlocks);
-            }
-            return workerOpAsync("py2ts", { options: opts });
-        })
-        .then(res => {
-            // strip the namespace declaration out of the converted snippets and concat to convert to blocks
-            let ts = "";
-            for (let file of files) {
-                let match = res.outfiles[file + ".ts"].match(namespaceRegex);
-                if (match && match[1]) ts += `{\n${match[1]}\n}\n`
-            }
-            return decompileBlocksSnippetAsync(ts, blockInfo)
-        });
-}
-
 function decompileCoreAsync(opts: pxtc.CompileOptions, fileName: string): Promise<pxtc.CompileResult> {
     return workerOpAsync("decompile", { options: opts, fileName: fileName })
 }
@@ -395,6 +385,79 @@ export function decompilePythonSnippetAsync(code: string): Promise<string> {
 
 function pyDecompileCoreAsync(opts: pxtc.CompileOptions, fileName: string): Promise<pxtc.transpile.TranspileResult> {
     return workerOpAsync("pydecompile", { options: opts, fileName: fileName })
+}
+
+// TS[] -> XML[] (blocks)
+export function decompileSnippetstoXmlAsync(code: string[]): Promise<string[]> {
+    const trg = pkg.mainPkg.getTargetOptions()
+    return pkg.mainPkg.getCompileOptionsAsync(trg)
+        .then(opts => {
+            opts.sourceTexts = code;
+            opts.snippetMode = false;
+
+            if (opts.sourceFiles.indexOf(pxt.MAIN_TS) === -1) {
+                opts.sourceFiles.push(pxt.MAIN_TS);
+            }
+            if (opts.sourceFiles.indexOf(pxt.MAIN_BLOCKS) === -1) {
+                opts.sourceFiles.push(pxt.MAIN_BLOCKS);
+            }
+            opts.ast = true;
+            return decompileSnippetsCoreAsync(opts);
+        });
+}
+
+// Py[] -> XML[] (blocks)
+export function decompilePySnippetstoXmlAsync(code: string[]): Promise<string[]> {
+    const namespaceRegex = /^\s*namespace\s+[^\s]+\s*{([\S\s]*)}\s*$/im;
+    const exportLetRegex = /^\s*export\s(let\s*[\S\s]*)\s*$/im;
+    const exportFunctionRegex = /^\s*export\s(function\s*[\S\s]*)\s*$/im;
+    const trg = pkg.mainPkg.getTargetOptions()
+    let files: string[] = [];
+    return waitForFirstTypecheckAsync()
+        .then(() => pkg.mainPkg.getCompileOptionsAsync(trg))
+        .then(opts => {
+            // split each code snippet into a separate file to preserve scoping
+            for (let i = 0; i < code.length; i++) {
+                const snippetName = `snippet_${i}`;
+                opts.fileSystem[snippetName + ".py"] = code[i];
+                opts.sourceFiles.push(snippetName + ".py");
+                files.push(snippetName)
+            }
+            opts.fileSystem[pxt.MAIN_BLOCKS] = "";
+            if (opts.sourceFiles.indexOf(pxt.MAIN_BLOCKS) === -1) {
+                opts.sourceFiles.push(pxt.MAIN_BLOCKS);
+            }
+            return workerOpAsync("py2ts", { options: opts });
+        })
+        .then(res => {
+            // strip the namespace declaration out of the converted snippets and concat to convert to blocks
+            const tsCode = [];
+            for (let file of files) {
+                let match = res.outfiles[file + ".ts"].match(namespaceRegex);
+                if (match && match[1]) {
+                    const noNamespace = match[1];
+                    // strip out 'export let' and 'export function'. This won't hit custom kinds since those are always const
+                    let lines = noNamespace.split("\n");
+                    let cleanLines = lines.map((element: string) => {
+                        const matchExportLet = element.match(exportLetRegex);
+                        const strippedExportLet = matchExportLet ? matchExportLet[1] : element;
+                        const strippedExportFunc = strippedExportLet.match(exportFunctionRegex);
+                        if (strippedExportFunc) {
+                            return strippedExportFunc[1];
+                        } else {
+                            return strippedExportLet;
+                        }
+                    })
+                    tsCode.push(cleanLines.join("\n"));
+                }
+            }
+            return decompileSnippetstoXmlAsync(tsCode);
+        });
+}
+
+
+function decompileSnippetsCoreAsync(opts: pxtc.CompileOptions): Promise<string[]> {
+    return workerOpAsync("decompileSnippets", { options: opts })
 }
 
 export function workerOpAsync<T extends keyof pxtc.service.ServiceOps>(op: T, arg: pxtc.service.OpArg): Promise<any> {
@@ -485,14 +548,14 @@ export function snippetAsync(qName: string, python?: boolean): Promise<string> {
 
 export function typecheckAsync() {
     const epkg = pkg.mainEditorPkg();
-    let p = epkg.buildTilemapsAsync()
+    let p = epkg.buildAssetsAsync()
         .then(() => pkg.mainPkg.getCompileOptionsAsync())
         .then(opts => {
             opts.testMode = true // show errors in all top-level code
             return workerOpAsync("setOptions", { options: opts })
         })
         .then(() => workerOpAsync("allDiags", {}) as Promise<pxtc.CompileResult>)
-        .then(r => setDiagnostics(r.diagnostics, r.sourceMap))
+        .then(r => setDiagnostics("typecheck", r.diagnostics, r.sourceMap))
         .then(ensureApisInfoAsync)
         .catch(catchUserErrorAndSetDiags(null))
     if (!firstTypecheck) firstTypecheck = p;
@@ -553,14 +616,15 @@ async function getCachedApiInfoAsync(project: pkg.EditorPackage, bundled: pxt.Ma
         "main.ts",
         pxt.TUTORIAL_CODE_START,
         pxt.TUTORIAL_CODE_STOP,
-        pxt.TILEMAP_CODE
+        pxt.TILEMAP_CODE,
+        pxt.IMAGES_CODE
     ];
 
     if (Object.keys(files).some(
-            filename => generatedFiles.indexOf(filename) === -1
+        filename => generatedFiles.indexOf(filename) === -1
             && filename.indexOf("/") === -1
             && pxt.Util.endsWith(filename, ".ts")
-        )) {
+    )) {
         return null;
     }
 
@@ -623,7 +687,6 @@ async function getCachedApiInfoAsync(project: pkg.EditorPackage, bundled: pxt.Ma
 
     const result: pxtc.ApisInfo = {
         byQName: {},
-        jres: {}
     };
 
     for (const used of usedPackageInfo) {
@@ -633,14 +696,16 @@ async function getCachedApiInfoAsync(project: pkg.EditorPackage, bundled: pxt.Ma
         // reinclude the pkg the api originates from, which is trimmed during compression
         for (const api of Object.keys(info.apis.byQName)) {
             info.apis.byQName[api].pkg = dirname;
+
+            // We had a bug where we were caching the translated language code and it broke translations.
+            // make sure we clear it on any old cached entries from before the bug was fixed
+            delete info.apis.byQName[api].attributes._translatedLanguageCode;
         }
 
         pxt.Util.jsonCopyFrom(result.byQName, info.apis.byQName);
-        if (info.apis.jres)
-            pxt.Util.jsonCopyFrom(result.jres, info.apis.jres);
     }
 
-    const jres = pkg.mainPkg.getJRes();
+    result.jres = pkg.mainPkg.getJRes() || {};
 
     for (const qName of Object.keys(result.byQName)) {
         let si = result.byQName[qName]
@@ -648,7 +713,7 @@ async function getCachedApiInfoAsync(project: pkg.EditorPackage, bundled: pxt.Ma
         let jrname = si.attributes.jres
         if (jrname) {
             if (jrname == "true") jrname = qName
-            let jr = U.lookup(jres || {}, jrname)
+            let jr = U.lookup(result.jres, jrname)
             if (jr && jr.icon && !si.attributes.iconURL) {
                 si.attributes.iconURL = jr.icon
             }
@@ -664,9 +729,9 @@ async function getCachedApiInfoAsync(project: pkg.EditorPackage, bundled: pxt.Ma
 async function cacheApiInfoAsync(project: pkg.EditorPackage, info: pxtc.ApisInfo) {
     const corePkgs = pxt.Package.corePackages().map(pkg => pkg.name);
     const externalPackages = project.pkgAndDeps()
-            .filter(p => p.id !== "built"
-                        && !p.isTopLevel()
-                        && corePkgs.indexOf(p.getPkgId()) === -1);
+        .filter(p => p.id !== "built"
+            && !p.isTopLevel()
+            && corePkgs.indexOf(p.getPkgId()) === -1);
 
     if (externalPackages.length) {
         const apiList = Object.keys(info.byQName);
@@ -682,8 +747,12 @@ async function cacheApiInfoAsync(project: pkg.EditorPackage, info: pxtc.ApisInfo
 
             for (const api of apiList) {
                 const apiInfo = info.byQName[api];
-                if (apiInfo.pkg === pkgId) {
-                    entry.apis.byQName[api] = apiInfo;
+
+                // We include an API in the list of APIs for an external package in two cases:
+                //  1. If the API's package ID is the same as the external package
+                //  2. If any of the package IDs in the list of packages that defined the API are the same as the external package
+                if (apiInfo.pkg === pkgId || apiInfo.pkgs?.find(element => element === pkgId)) {
+                    entry.apis.byQName[api] = cleanApiForCache(apiInfo);
                 }
             }
 
@@ -691,6 +760,36 @@ async function cacheApiInfoAsync(project: pkg.EditorPackage, info: pxtc.ApisInfo
             pxt.debug(`Stored API info for ${getPackageKey(dep)}`);
         }
     }
+}
+
+function cleanApiForCache(apiInfo: pxtc.SymbolInfo) {
+    // Create a copy of the API info since we want to remove the package list.
+    // Most info objects won't have a package list
+    const cachedEntry = U.clone(apiInfo);
+
+    // strip the pkg array to not store duplicate info
+    delete cachedEntry.pkgs;
+
+    // clear translations on blocks before caching
+    const cachedAttrs = U.clone(cachedEntry.attributes)
+    delete cachedAttrs._translatedLanguageCode;
+
+    let defChanged = false;
+    if (cachedAttrs._untranslatedBlock) {
+        cachedAttrs.block = cachedAttrs._untranslatedBlock;
+        delete cachedAttrs._untranslatedBlock;
+        defChanged = true;
+    }
+    if (cachedAttrs._untranslatedJsDoc) {
+        cachedAttrs.jsDoc = cachedAttrs._untranslatedJsDoc;
+        delete cachedAttrs._untranslatedJsDoc;
+        defChanged = true;
+    }
+    if (defChanged) {
+        ts.pxtc.updateBlockDef(cachedAttrs);
+    }
+    cachedEntry.attributes = cachedAttrs;
+    return cachedEntry;
 }
 
 export interface UpgradeResult {
@@ -775,7 +874,7 @@ function upgradeFromBlocksAsync(): Promise<UpgradeResult> {
         })
         .then(res => {
             patchedFiles["main.ts"] = res.source;
-            return project.buildTilemapsAsync();
+            return project.buildAssetsAsync();
         })
         .then(() => {
             const compiledFiles = project.getAllFiles();
@@ -837,7 +936,7 @@ interface UpgradeError extends Error {
 
 function checkPatchAsync(patchedFiles?: pxt.Map<string>) {
     const mainPkg = pkg.mainPkg;
-    return pkg.mainEditorPkg().buildTilemapsAsync()
+    return pkg.mainEditorPkg().buildAssetsAsync()
         .then(() => mainPkg.getCompileOptionsAsync())
         .then(opts => {
             if (patchedFiles) {
@@ -892,7 +991,7 @@ export function updatePackagesAsync(packages: pkg.EditorPackage[], token?: pxt.U
 
             return workspace.saveAsync(epkg.header);
         })
-        .then(() => Promise.each(packages, p => {
+        .then(() => U.promiseMapAllSeries(packages, p => {
             if (token) token.throwIfCancelled();
             return epkg.updateDepAsync(p.getPkgId())
                 .then(() => {
@@ -1026,11 +1125,9 @@ class ApiInfoIndexedDb {
 
         return this.db.getAsync(ApiInfoIndexedDb.TABLE, key)
             .then((value: ApiInfoIndexedDbEntry) => {
-                /* tslint:disable:possible-timing-attack (this is not a security-sensitive codepath) */
                 if (value && value.hash === hash) {
                     return value.apis
                 }
-                /* tslint:enable:possible-timing-attack */
                 return undefined;
             });
     }
@@ -1051,4 +1148,19 @@ class ApiInfoIndexedDb {
                 pxt.perf.measureEnd("compiler db setAsync")
             })
     }
+
+    clearAsync(): Promise<void> {
+        return this.db.deleteAllAsync(ApiInfoIndexedDb.TABLE)
+            .then(() => console.debug(`db: all clean`))
+            .catch(e => {
+                console.error('db: failed to delete all');
+            })
+    }
+}
+
+export function clearApiInfoDbAsync() {
+    return ApiInfoIndexedDb.createAsync()
+        .then(db => db.clearAsync())
+        .catch(e => pxt.BrowserUtils.IDBWrapper.deleteDatabaseAsync(ApiInfoIndexedDb.dbName()).then());
+
 }

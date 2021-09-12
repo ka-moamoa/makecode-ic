@@ -212,22 +212,30 @@ namespace pxt.blocks {
                 // HACK: The real type is stored as the second check
                 return ground(b.outputConnection.check_[1])
             }
-            // The only block that hits this case should be lists_create_with, so we
-            // can safely infer the type from the first input that has a return type
+            // lists_create_with and argument_reporter_array both hit this.
+            // For lists_create_with, we can safely infer the type from the
+            // first input that has a return type.
+            // For argument_reporter_array just return any[] for now
             let tp: Point;
-            if (b.inputList && b.inputList.length) {
-                for (const input of b.inputList) {
-                    if (input.connection && input.connection.targetBlock()) {
-                        let t = find(returnType(e, input.connection.targetBlock()))
-                        if (t) {
-                            if (t.parentType) {
-                                return t.parentType;
+            if (b.type == "lists_create_with") {
+                if (b.inputList && b.inputList.length) {
+                    for (const input of b.inputList) {
+                        if (input.connection && input.connection.targetBlock()) {
+                            let t = find(returnType(e, input.connection.targetBlock()))
+                            if (t) {
+                                if (t.parentType) {
+                                    return t.parentType;
+                                }
+                                tp = ground(t.type + "[]");
+                                genericLink(tp, t);
+                                break;
                             }
-                            tp = ground(t.type + "[]");
-                            genericLink(tp, t);
-                            break;
                         }
                     }
+                }
+            } else if (b.type == "argument_reporter_array") {
+                if (!tp) {
+                    tp = ground("any[]")
                 }
             }
 
@@ -325,7 +333,7 @@ namespace pxt.blocks {
     }
 
     function isArrayType(type: string) {
-        return type && type.indexOf("[]") !== -1;
+        return type && (type.indexOf("[]") !== -1 || type == "Array");
     }
 
     function mkPlaceholderBlock(e: Environment, parent: Blockly.Block, type?: string): Blockly.Block {
@@ -793,6 +801,9 @@ namespace pxt.blocks {
         const name = escapeVarName(b.getField("function_name").getText(), e, true);
         const stmts = getInputTargetBlock(b, "STACK");
         const argsDeclaration = (b as Blockly.FunctionDefinitionBlock).getArguments().map(a => {
+            if (a.type == "Array") {
+                return `${escapeVarName(a.name, e)}: any[]`;
+            }
             return `${escapeVarName(a.name, e)}: ${a.type}`;
         });
 
@@ -947,8 +958,10 @@ namespace pxt.blocks {
             case "argument_reporter_boolean":
             case "argument_reporter_number":
             case "argument_reporter_string":
+            case "argument_reporter_array":
             case "argument_reporter_custom":
-                expr = compileArgumentReporter(e, b, comments); break;
+                expr = compileArgumentReporter(e, b, comments);
+                break;
             case "function_call_output":
                 expr = compileFunctionCall(e, b, comments, false); break;
             default:
@@ -1252,7 +1265,7 @@ namespace pxt.blocks {
             if (field instanceof pxtblockly.FieldTextInput) {
                 return H.mkStringLiteral(f);
             }
-            else if (field instanceof pxtblockly.FieldTilemap) {
+            else if (field instanceof pxtblockly.FieldTilemap && !field.isGreyBlock) {
                 const project = pxt.react.getTilemapProject();
                 const tmString = field.getValue();
 
@@ -1725,6 +1738,11 @@ namespace pxt.blocks {
         try {
             // all compiled top level blocks are events
             let allBlocks = w.getAllBlocks();
+
+            if (pxt.react.getTilemapProject) {
+                pxt.react.getTilemapProject().removeInactiveBlockAssets(allBlocks.map(b => b.id));
+            }
+
             // the top blocks are storted by blockly
             let topblocks = w.getTopBlocks(true);
             // reorder remaining events by names (top blocks still contains disabled blocks)
@@ -2246,15 +2264,15 @@ namespace pxt.blocks {
         current.children.forEach(c => escapeVariables(c, e));
 
 
-        function escapeVarName(name: string): string {
-            if (!name) return '_';
+        function escapeVarName(originalName: string): string {
+            if (!originalName) return '_';
 
-            let n = ts.pxtc.escapeIdentifier(name);
+            let n = ts.pxtc.escapeIdentifier(originalName);
 
-            if (e.renames.takenNames[n] || nameIsTaken(n, current)) {
+            if (e.renames.takenNames[n] || nameIsTaken(n, current, originalName)) {
                 let i = 2;
 
-                while (e.renames.takenNames[n + i] || nameIsTaken(n + i, current)) {
+                while (e.renames.takenNames[n + i] || nameIsTaken(n + i, current, originalName)) {
                     i++;
                 }
 
@@ -2264,13 +2282,14 @@ namespace pxt.blocks {
             return n;
         }
 
-        function nameIsTaken(name: string, scope: Scope): boolean {
+        function nameIsTaken(name: string, scope: Scope, originalName: string): boolean {
             if (scope) {
                 for (const varName of Object.keys(scope.declaredVars)) {
                     const info = scope.declaredVars[varName];
-                    if (info.name !== info.escapedName && info.escapedName === name) return true;
+                    if ((originalName !== info.name || info.name !== info.escapedName) && info.escapedName === name)
+                        return true;
                 }
-                return nameIsTaken(name, scope.parent);
+                return nameIsTaken(name, scope.parent, originalName);
             }
 
             return false;

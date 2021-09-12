@@ -4,6 +4,7 @@ import * as sui from "./sui";
 import * as core from "./core";
 import * as workspace from "./workspace";
 import * as compiler from "./compiler";
+import * as auth from "./auth";
 
 import { SearchInput } from "./components/searchInput";
 import { ProjectsCodeCard } from "./projects";
@@ -147,7 +148,7 @@ export class ScriptManagerDialog extends data.Component<ScriptManagerDialogProps
 
         core.showLoading("changeheader", lf("loading..."));
         this.props.parent.loadHeaderAsync(header)
-            .done(() => {
+            .then(() => {
                 core.hideLoading("changeheader");
             })
     }
@@ -180,20 +181,15 @@ export class ScriptManagerDialog extends data.Component<ScriptManagerDialogProps
         return core.promptAsync(opts).then(res => {
             if (res === null)
                 return false; // null means cancelled
-            return workspace.getTextAsync(header.id)
-                .then(text => workspace.duplicateAsync(header, text, res))
+            return workspace.duplicateAsync(header, res)
                 .then(clonedHeader => {
-                    // If we're cloud synced, update the cloudSync flag
-                    if (this.props.parent.cloudSync()) clonedHeader.cloudSync = true;
-
-                    delete clonedHeader.blobId
-                    delete clonedHeader.blobVersion
-                    delete clonedHeader.blobCurrent
+                    delete clonedHeader.blobId_
+                    delete clonedHeader.blobVersion_
+                    delete clonedHeader.blobCurrent_
 
                     return workspace.saveAsync(clonedHeader);
                 })
                 .then(() => {
-                    data.invalidate("headers:");
                     data.invalidate(`headers:${this.state.searchFor}`);
                     this.setState({ selected: {}, markedNew: { '0': 1 }, sortedBy: 'time', sortedAsc: false });
                     setTimeout(() => {
@@ -289,7 +285,8 @@ export class ScriptManagerDialog extends data.Component<ScriptManagerDialogProps
 
     private getSortedHeaders() {
         const { sortedBy, sortedAsc } = this.state;
-        const headers = this.fetchLocalData() || [];
+        const headers = (this.fetchLocalData() || [])
+            .filter(h => !h.tutorial?.metadata?.hideIteration);
         return headers.sort(this.getSortingFunction(sortedBy, sortedAsc))
     }
 
@@ -379,7 +376,11 @@ export class ScriptManagerDialog extends data.Component<ScriptManagerDialogProps
                     <div role="button" className="ui container fluid" style={{ height: "100%" }} onClick={this.handleAreaClick} onKeyDown={this.handleKeyDown}>
                         <div className="sort-by">
                             <div role="menu" className="ui compact buttons">
-                                <sui.DropdownMenu role="menuitem" text={sortedBy == 'time' ? lf("Last Modified") : lf("Name")} title={lf("Sort by dropdown")} className={`inline button ${darkTheme ? 'inverted' : ''}`}>
+                                <sui.DropdownMenu
+                                    role="menuitem" text={sortedBy == 'time' ? lf("Last Modified") : lf("Name")}
+                                    title={lf("Sort by dropdown")} className={`inline button ${darkTheme ? 'inverted' : ''}`}
+                                    displayLeft
+                                >
                                     <sui.Item role="menuitem" icon={sortedBy == 'name' ? 'check' : undefined} className={`${sortedBy != 'name' ? 'no-icon' : ''} ${darkTheme ? 'inverted' : ''}`} text={lf("Name")} tabIndex={-1} onClick={this.handleSortName} />
                                     <sui.Item role="menuitem" icon={sortedBy == 'time' ? 'check' : undefined} className={`${sortedBy != 'time' ? 'no-icon' : ''} ${darkTheme ? 'inverted' : ''}`} text={lf("Last Modified")} tabIndex={-1} onClick={this.handleSortTime} />
                                 </sui.DropdownMenu>
@@ -412,6 +413,7 @@ export class ScriptManagerDialog extends data.Component<ScriptManagerDialogProps
                                     label={label}
                                     onCardClick={this.handleCardClick}
                                     onLabelClick={this.handleCheckboxClick}
+                                    projectId={scr.id}
                                 />
                             })}
                         </div>

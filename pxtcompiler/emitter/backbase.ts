@@ -94,37 +94,11 @@ namespace ts.pxtc {
         }
 
         string_literal(lbl: string, strLit: string) {
-            const SKIP_INCR = 16
-            let vt = "pxt::string_inline_ascii_vt"
-            let utfLit = target.utf8 ? U.toUTF8(strLit, true) : strLit
-            if (utfLit !== strLit) {
-                if (strLit.length > SKIP_INCR) {
-                    vt = "pxt::string_skiplist16_vt"
-                    let skipList: number[] = []
-                    let off = 0
-                    for (let i = 0; i + SKIP_INCR <= strLit.length; i += SKIP_INCR) {
-                        off += U.toUTF8(strLit.slice(i, i + SKIP_INCR), true).length
-                        skipList.push(off)
-                    }
-                    return `
-.balign 4
-${lbl}: ${this.obj_header(vt)}
-        .short ${utfLit.length}, ${strLit.length}
-        .word ${lbl}data
-${lbl}data:
-        .short ${skipList.map(s => s.toString()).join(", ")}
-        .string ${asmStringLiteral(utfLit)}
-`
-                } else {
-                    vt = "pxt::string_inline_utf8_vt"
-                }
-            }
-
+            const info = utf8AsmStringLiteral(strLit)
             return `
-.balign 4
-${lbl}: ${this.obj_header(vt)}
-        .short ${utfLit.length}
-        .string ${asmStringLiteral(utfLit)}
+            .balign 4
+            ${lbl}: ${this.obj_header(info.vt)}
+            ${info.asm}
 `
         }
 
@@ -139,6 +113,38 @@ ${lbl}: ${this.obj_header("pxt::buffer_vt")}
 ${hexLiteralAsm(data)}
 `
         }
+    }
+
+    export function utf8AsmStringLiteral(strLit: string) {
+        const PXT_STRING_SKIP_INCR = 16
+        let vt = "pxt::string_inline_ascii_vt"
+        let utfLit = target.utf8 ? U.toUTF8(strLit, true) : strLit
+        let asm = ""
+        if (utfLit !== strLit) {
+            if (strLit.length > PXT_STRING_SKIP_INCR) {
+                vt = "pxt::string_skiplist16_packed_vt"
+                let skipList: number[] = []
+                let off = 0
+                for (let i = 0; i + PXT_STRING_SKIP_INCR <= strLit.length; i += PXT_STRING_SKIP_INCR) {
+                    off += U.toUTF8(strLit.slice(i, i + PXT_STRING_SKIP_INCR), true).length
+                    skipList.push(off)
+                }
+                asm = `
+    .short ${utfLit.length}, ${strLit.length}
+    .short ${skipList.map(s => s.toString()).join(", ")}
+    .string ${asmStringLiteral(utfLit)}
+`
+            } else {
+                vt = "pxt::string_inline_utf8_vt"
+            }
+        }
+
+        if (!asm)
+            asm = `
+    .short ${utfLit.length}
+    .string ${asmStringLiteral(utfLit)}
+`
+        return { vt, asm }
     }
 
     export function hexLiteralAsm(data: string, suff = "") {
@@ -219,12 +225,16 @@ ${hexLiteralAsm(data)}
 ;
 `)
 
-            this.emitLambdaWrapper(this.proc.isRoot)
-
             let baseLabel = this.proc.label()
+            let preLabel = baseLabel + "_pre"
             let bkptLabel = baseLabel + "_bkpt"
             let locLabel = baseLabel + "_locals"
             let endLabel = baseLabel + "_end"
+
+            this.write(`${preLabel}:`)
+
+            this.emitLambdaWrapper(this.proc.isRoot)
+
             this.write(`.section code`)
             this.write(`${baseLabel}:`)
 
@@ -255,7 +265,8 @@ ${baseLabel}_nochk:
                     bkptLoc: U.lookup(labels, bkptLabel),
                     localsMark: U.lookup(th.stackAtLabel, locLabel),
                     idx: this.proc.seqNo,
-                    calls: this.calls
+                    calls: this.calls,
+                    size: U.lookup(labels, endLabel) + 2 - U.lookup(labels, preLabel)
                 }
 
                 for (let ci of this.calls) {
@@ -320,6 +331,9 @@ ${baseLabel}_nochk:
                         this.write(s.lblName + ":")
                         this.validateJmpStack(s)
                         break;
+                    case ir.SK.Comment:
+                        this.write(`; ${s.expr.data}`)
+                        break
                     case ir.SK.Breakpoint:
                         if (this.bin.options.breakpoints) {
                             let lbl = `__brkp_${s.breakpointInfo.id}`
@@ -579,6 +593,12 @@ ${baseLabel}_nochk:
             return
         }
 
+        private writeFailBranch() {
+            this.write(`.fail:`)
+            this.write(`mov r1, lr`)
+            this.write(this.t.callCPP("pxt::failedCast"))
+        }
+
         private emitClassCall(procid: ir.ProcId) {
             let effIdx = procid.virtualIndex + firstMethodOffset()
             this.write(this.t.emit_int(effIdx * 4, "r1"))
@@ -594,8 +614,7 @@ ${baseLabel}_nochk:
                     this.checkSubtype(info)
                 this.write(`ldr r1, [r3, r1] ; ld-method`)
                 this.write(`bx r1 ; keep lr from caller`)
-                this.write(`.fail:`)
-                this.write(this.t.callCPP("pxt::failedCast"))
+                this.writeFailBranch()
             })
         }
 
@@ -629,11 +648,11 @@ ${baseLabel}_nochk:
                     ldr r2, [r0, #16]
                     adds r4, r4, #1
                     bx r1
-                .fail:
-                    ${this.t.callCPP("pxt::failedCast")}
-
-                _pxt_copy_list:
             `)
+
+            this.writeFailBranch()
+
+            this.write(`_pxt_copy_list:`)
 
             this.write(U.range(maxArgs).map(k => `.word _pxt_bind_${k}@fn`).join("\n"))
 
@@ -802,9 +821,9 @@ ${baseLabel}_nochk:
             if (noObjlit)
                 this.write(".objlit:")
 
+            this.writeFailBranch()
+
             this.write(`
-            .fail:
-                ${this.t.callCPP("pxt::failedCast")}
             .fail2:
                 ${this.t.callCPP("pxt::missingProperty")}
             `)
@@ -867,8 +886,7 @@ ${baseLabel}_nochk:
                     this.write(`bx lr`)
                 } else if (tp == "validate") {
                     this.write(`bx lr`)
-                    this.write(`.fail:`)
-                    this.write(this.t.callCPP("pxt::failedCast"))
+                    this.writeFailBranch()
                 } else if (tp == "validateNullable") {
                     this.write(`.undefined:`)
                     this.write(`bx lr`)
@@ -877,8 +895,7 @@ ${baseLabel}_nochk:
                     this.write(`bne .fail`)
                     this.write(`movs r0, #0`)
                     this.write(`bx lr`)
-                    this.write(`.fail:`)
-                    this.write(this.t.callCPP("pxt::failedCast"))
+                    this.writeFailBranch()
                 } else {
                     U.oops()
                 }
@@ -1238,10 +1255,9 @@ ${baseLabel}_nochk:
                 ${this.t.callCPP(`Array_::${op}At`)}
                 ${conv}
                 ${this.t.popPC()}
-
-            .fail:
-                bl pxt::failedCast
             `)
+
+            this.writeFailBranch()
 
             if (op == "get") {
                 this.write(`
@@ -1481,8 +1497,7 @@ ${baseLabel}_nochk:
                 this.write(this.loadFromExprStack("r0", topExpr.args[0]))
                 this.emitLabelledHelper("lambda_call" + numargs, () => {
                     this.lambdaCall(numargs)
-                    this.write(`.fail:`)
-                    this.write(this.t.callCPP("pxt::failedCast"))
+                    this.writeFailBranch()
                 })
             } else if (procid.virtualIndex != null || procid.ifaceIndex != null) {
                 if (procid.ifaceIndex != null) {
