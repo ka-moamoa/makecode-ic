@@ -1134,7 +1134,7 @@ namespace ts.pxtc {
         //emit(rootFunction)
 
         //console.log("2 printing bin procs")
-        //console.log(bin)
+        console.log(bin)
 
         //console.log("rootfunction")
         //console.log(rootFunction)
@@ -1770,6 +1770,22 @@ namespace ts.pxtc {
                 let if_stmt = new ir.Stmt(3,toBool_expr)
                 if_stmt.jmpMode = 2
 
+                let strlen = bin.checklabel[j].lblName.length
+                let idstart = bin.checklabel[j].lblName.lastIndexOf("_")
+                let proc_number = parseInt(bin.checklabel[j].lblName.substring(idstart+1,strlen))
+
+                console.log("THIS IS PROC_NUMBER: "+proc_number)
+
+                let function_w_chk_procid: ir.ProcId = {
+                    proc: bin.procs[proc_number-1],
+                    callLocationIndex: 14,
+                    virtualIndex: null,
+                    ifaceIndex: null
+                }
+
+                let functioncall_expr = new ir.Expr(ir.EK.ProcCall,[],function_w_chk_procid)
+                let functioncall_stmt = new ir.Stmt(ir.SK.Expr, functioncall_expr)
+
                 let goto_label_stmt = new ir.Stmt(3,null)
                 goto_label_stmt.lbl = bin.checklabel[j]
                 goto_label_stmt.lblName = bin.checklabel[j].lblName
@@ -1781,7 +1797,23 @@ namespace ts.pxtc {
                 if_stmt.lblName = elselbl.lblName
 
                 bin.mainStmts.push(if_stmt)
-                bin.mainStmts.push(goto_label_stmt)
+                if(proc_number != 1){
+                    bin.mainStmts.push(functioncall_stmt)
+                    let funcelse_lbl = bin.procs[proc_number-1].mkLabel("else")
+                    let t_expr_j = new ir.Expr(1,null,valueEncode(j))
+                    let t_numop_expr = new ir.Expr(3,[label_cell_expr,t_expr_j],"numops::eq")
+                    let t_toBool_expr = new ir.Expr(3,[t_numop_expr],"numops::toBoolDecr")
+                    let t_if_stmt = new ir.Stmt(3,t_toBool_expr)
+                    t_if_stmt.jmpMode = 2
+                    t_if_stmt.lbl = funcelse_lbl
+                    t_if_stmt.lblName = funcelse_lbl.lblName
+                    bin.procs[proc_number-1].body.unshift(funcelse_lbl)
+                    bin.procs[proc_number-1].body.unshift(goto_label_stmt)
+                    bin.procs[proc_number-1].body.unshift(t_if_stmt)
+                } else {
+                    bin.mainStmts.push(goto_label_stmt)
+                }
+                
                 bin.mainStmts.push(elselbl)
             }
 
