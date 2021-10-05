@@ -1,6 +1,8 @@
 /// <reference path="../../localtypings/pxtarget.d.ts"/>
 /// <reference path="../../localtypings/pxtpackage.d.ts"/>
 
+import { IRunnable, IRunner } from "mocha";
+
 namespace ts {
     export interface Node {
         pxt: pxtc.PxtNode;
@@ -1351,6 +1353,8 @@ namespace ts.pxtc {
                
                 
             }
+
+            flatten(bin.procs[0])
         }
 
         function buildInstructions(){
@@ -2069,6 +2073,31 @@ namespace ts.pxtc {
 
 
         }
+
+        /*
+        function flatten(proc: ir.Procedure){
+            for(let i = 0; i<proc.body.length; i++){
+                if(proc.body[i].stmtKind == ir.Expr){
+                    if(proc.body[i].expr.exprKind == ir.EK.ProcCall){
+                        let procnumber = proc.body[i].expr.data.seqNo - 1
+                        if(bin.procs[procnumber].info.decl.parent.getSourceFile().filename == "main.ts"){
+                            for(let j = 0; j < bin.procs[procnumber];j++){
+                                if(j == 0){
+                                    //replace the function call
+                                    proc.body.splice(i+j,1,bin.procs[procnumber].body[j])
+                                }
+                                //insert the rest of the function
+                                proc.body.splice(i+j,0,bin.procs[procnumber].body[j])
+                            }
+                        }
+                        
+                    }
+                }
+            }
+            return
+            
+        }
+        */
 
         function getBufr(){
             //this will eventually create a bufr from scratch, but for now we find it
