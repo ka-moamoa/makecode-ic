@@ -1,7 +1,7 @@
 /// <reference path="../../localtypings/pxtarget.d.ts"/>
 /// <reference path="../../localtypings/pxtpackage.d.ts"/>
 
-import { IRunnable, IRunner } from "mocha";
+
 
 namespace ts {
     export interface Node {
@@ -1137,6 +1137,7 @@ namespace ts.pxtc {
 
         //console.log("2 printing bin procs")
         console.log(bin)
+        //console.log(bin.procs[0].cachedJS)
 
         //console.log("rootfunction")
         //console.log(rootFunction)
@@ -1185,8 +1186,30 @@ namespace ts.pxtc {
             if(glb_var.getName() == "label"){
                 bin.label_cell = glb_var
             }
+            if(glb_var.getName() == "arg0"){
+                bin.customArgs[0] = glb_var
+            }
+            if(glb_var.getName() == "arg1"){
+                bin.customArgs[1] = glb_var
+            }
+            if(glb_var.getName() == "arg2"){
+                bin.customArgs[2] = glb_var
+            }
+            if(glb_var.getName() == "arg3"){
+                bin.customArgs[3] = glb_var
+            }
+            if(glb_var.getName() == "arg4"){
+                bin.customArgs[4] = glb_var
+            }
+            if(glb_var.getName() == "arg5"){
+                bin.customArgs[5] = glb_var
+            }
+            if(glb_var.getName() == "argarr"){
+                bin.argarr = glb_var
+            }
         }
         if(addIntermitent){
+            flatten(bin.procs[0])
             codeAnalysis()
             if(bin.varsToCheckpoint.length > 0){
                 setup()
@@ -1305,6 +1328,8 @@ namespace ts.pxtc {
         }
 
         function codeTransformations(){
+            
+            
             for(let prc of bin.procs){
                 
                 
@@ -1354,7 +1379,7 @@ namespace ts.pxtc {
                 
             }
 
-            flatten(bin.procs[0])
+            
         }
 
         function buildInstructions(){
@@ -1647,14 +1672,30 @@ namespace ts.pxtc {
             for(let glb_var of bin.globals){
                 if(glb_var._debugType == "number"){
                     let count = 0
+                    //console.log(glb_var.getName())
+                    for(let i = 0; i < bin.procs[0].body.length; i++){
+                        if(bin.procs[0].body[i].stmtKind == ir.SK.Expr){
+                            if(bin.procs[0].body[i].expr.exprKind == ir.EK.Store){
+                                //console.log(bin.procs[0].body[i].expr.args[0].data.getName(), glb_var.getName())
+                                if(bin.procs[0].body[i].expr.args[0].data.getName() == glb_var.getName()){
+                                    //console.log("found a match")
+                                    count++
+                                }
+                            }
+                        }
+                    }
+                    /*
                     for(let prc of bin.procs){
                         for(let body_statement of prc.body){
                             if(body_statement.stmtKind == 1){
                                 if(body_statement.expr.args){
                                     if(body_statement.expr.args[0]){
                                         if(body_statement.expr.args[0].exprKind == 9){
-                                            if(body_statement.expr.args[0].data == glb_var){
+                                            if(body_statement.expr.args[0].data.getName() == glb_var.getName()){
+                                                
+                                                console.log("In count ",glb_var.getName())
                                                 count++
+                                                console.log(count)
                                             }
                                         }
                                     }
@@ -1662,9 +1703,10 @@ namespace ts.pxtc {
                             }
                         }
                     }
+                    */
                     if(count > 1 ){
                         glb_var.isModified = true
-                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "generation"){
+                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "generation" && !glb_var.getName().includes("arg")){
                             bin.varsToCheckpoint.push(glb_var)
                         }
                         
@@ -1857,23 +1899,171 @@ namespace ts.pxtc {
             let emit_stack = new Array()
             let emit_set = new Set()
             
-         
+            let i = start
+
+            while(1){
+                if(proc.body[i].stmtKind == ir.SK.Label){
+                    if(proc.body[i].lblName.includes("final")){
+                        console.log("found a final, leaving")
+                        return
+                    } else if(emit_stack.length > 0){
+                        console.log("found a label, emitting")
+                        emit_stack = [] //ugly hack to fix differential checkpointing, come back to this later
+
+                        //insert write to label
+
+                        let label_number_expr = new ir.Expr(1, null, valueEncode(bin.checklabel.length))
+                        let label_cell_expr = new ir.Expr(9, null, bin.label_cell)
+                        let label_assign_expr = new ir.Expr(8, [label_cell_expr, label_number_expr], undefined)
+                        let label_assign_stmt = new ir.Stmt(1,label_assign_expr)
+        
+                        emit_stack.push(label_assign_stmt)
+
+
+                        for(let i = 0; i < bin.varsToCheckpoint.length; i++){
+                            emit_stack.push(bin.setMap.get(bin.varsToCheckpoint[i].getName()))
+                        }
+
+
+                        emit_stack.push(bin.gen_invert)
+                        emit_stack.push(bin.writeEnableStmt)
+                        emit_stack.push(bin.gen_write8)
+
+                    
+
+
+                        let elselbl = proc.mkLabel("else")
+                        if(bin.optimization == 1){
+                            let millis_expr = new ir.Expr(3, [], "control::millis");
+                            
+                            let timer_cellref_expr = new ir.Expr(9, null, bin.opt_cell)
+                            let expr_2 = new ir.Expr(1, null, valueEncode(2))
+                            let expr_1 = new ir.Expr(1, null, valueEncode(1))
+                            let millis_mul_expr = new ir.Expr(3,[millis_expr,expr_2], "numops::muls")
+                            let millis_fromInt = fromInt(millis_expr)
+                            let millis_dub_add_expr = new ir.Expr(3, [millis_mul_expr, expr_1], "numops::adds")
+                            let debug_expr = new ir.Expr(8, [timer_cellref_expr, millis_fromInt], "")
+                            let debug_stmt = new ir.Stmt(1, debug_expr)
+                            let subs_expr = new ir.Expr(3, [millis_fromInt,timer_cellref_expr],"numops::subs")
+                            let duration_expr = new ir.Expr(1,null,valueEncode(bin.opt_val))
+                            let numops_gt_expr = new ir.Expr(3,[subs_expr,duration_expr],"numops::gt")
+                            let gtBool_expr = new ir.Expr(3,[numops_gt_expr], "numops::toBoolDecr")
+                            let timerif_stmt = new ir.Stmt(3,gtBool_expr)
+                            timerif_stmt.jmpMode = 2
+                            timerif_stmt.lbl = elselbl
+                            timerif_stmt.lblName = elselbl.lblName
+                            //timer reset
+                            let timer_store_expr = new ir.Expr(8,[timer_cellref_expr,millis_fromInt],"")
+                            let timer_store_stmt = new ir.Stmt(1,timer_store_expr)
+                            let null_stmt = new ir.Stmt(4,null)
+                            emit_stack.unshift(null_stmt)
+                            emit_stack.unshift(timer_store_stmt) //ran into bug where I can't unshift all at once, have to separate them
+                            emit_stack.unshift(timerif_stmt)
+                            //emit_stack.unshift(null_stmt)
+                            //emit_stack.unshift(debug_stmt)
+                            emit_stack.push(elselbl)
+                        } else if(bin.optimization == 2){
+                            let p1_expr = new ir.Expr(1, null, 102)
+                            let analogread_expr = new ir.Expr(3, [p1_expr], "pins::analogReadPin")
+                            let jitval = new ir.Expr(1,null, valueEncode(bin.opt_val))
+                            //let jitcell_ref = new ir.Expr(9, null, bin.opt_cell)
+                            let analogfromint_expr = fromInt(analogread_expr)
+                            let numopts_lt_expr = new ir.Expr(3, [analogfromint_expr, jitval], "numops::lt")
+                            let toBool_expr = new ir.Expr(3, [numopts_lt_expr], "numops::toBoolDecr")
+                            let jitif_stmt = new ir.Stmt(3, toBool_expr)
+                            jitif_stmt.jmpMode = 2
+                            jitif_stmt.lbl = elselbl
+                            jitif_stmt.lblName = elselbl.lblName
+                            emit_stack.unshift(jitif_stmt)
+                            emit_stack.push(elselbl)
+                        } else if(bin.optimization == 3){
+                            if(incominglblId != ""){
+                                let weight_cellref_expr = new ir.Expr(9, null, bin.opt_cell)
+                                let val_expr = new ir.Expr(1, null, valueEncode(bin.opt_val))
+                                let numops_gt_expr = new ir.Expr(3,[weight_cellref_expr,val_expr], "numops::gt")
+                                let weightBool_expr = new ir.Expr(3, [numops_gt_expr], "numops::toBoolDecr")
+                                let weightif_stmt = new ir.Stmt(3, weightBool_expr)
+                                weightif_stmt.jmpMode = 2
+                                weightif_stmt.lbl = elselbl
+                                weightif_stmt.lblName = elselbl.lblName
+                                let val0_expr = new ir.Expr(1, null, valueEncode(0))
+                                let opt_store_expr = new ir.Expr(8,[weight_cellref_expr,val0_expr],null)
+                                let opt_store_stmt = new ir.Stmt(1,opt_store_expr)
+                                emit_stack.unshift(opt_store_stmt)
+                                emit_stack.unshift(weightif_stmt)
+                                emit_stack.push(elselbl)
+                                let val1_expr = new ir.Expr(1, null, valueEncode(1))
+                                let add_expr = new ir.Expr(3, [weight_cellref_expr, val1_expr], "numops::adds")
+                                let storeadd_expr = new ir.Expr(8, [weight_cellref_expr, add_expr], null)
+                                let storeadd_stmt = new ir.Stmt(1,storeadd_expr)
+                                emit_stack.push(storeadd_stmt)
+
+                                //one of these expressions is fucking things up when it is emitted
+
+                            }
+                        }
+
+                        //add label at the end of each checkpoint
+                        // enumerate each label as a number
+                        // save that number to a custom variable that will be saved in the checkpoint, will work like any other vairable
+                        // need to find a way to add switch statement at the top of the program
+                        let checkpointlabel = proc.mkLabel("Checkpoint")
+                        emit_stack.push(checkpointlabel)
+                        bin.checklabel.push(checkpointlabel)
+                        if(proc.body[i].lblName.includes("brk")){
+                            emitBlockInPlace(proc,i-1,emit_stack)
+                        } else {
+                            emitBlockInPlace(proc,i,emit_stack)
+                        }
+                        i+=emit_stack.length
+                        emit_stack = []
+                        emit_set.clear()
+                    }
+                } else {
+                    console.log("expression")
+                    if(proc.body[i].stmtKind == ir.SK.Expr){
+                        if(proc.body[i].expr.args){
+                            if(proc.body[i].expr.args[0]){
+                                if(proc.body[i].expr.args[0].data){
+                                    if(proc.body[i].expr.args[0].data.def){
+                                        if(proc.body[i].expr.args[0].data.def.name){
+                                            if(bin.setMap.has(proc.body[i].expr.args[0].data.def.name.escapedText)){
+                                                if(!emit_set.has(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))){
+                                                    emit_stack.push(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
+                                                    emit_set.add(bin.setMap.get(proc.body[i].expr.args[0].data.def.name.escapedText))
+                                    
+                                                }
+                                                
+                                            }
+                                        }
+                                        
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                i++
+            }
             
+            /*
             for(let i = start; i < end; i++){
                 if(proc.body[i].stmtKind == 2){
                     //console.log("lbl found in Checkpoint: "+proc.body[i].lblName)
-                    if(proc.body[i].lblName.includes("fortop")){
+                    if(proc.body[i].lblName.includes("fortop") && 0){
                         let strlen = proc.body[i].lblName.length
                         let idstart = proc.body[i].lblName.lastIndexOf(".")
                         let lblId = proc.body[i].lblName.substring(idstart,strlen)
                         //console.log("this is the lblid!")
-                        //console.log(lblId)
+                        console.log("found a for loop", proc.body[i].lblName)
+                        
                         
                         i++
                         let newstart = i
                         while(1){
                             if(proc.body[i].stmtKind == 2){
                                 if(proc.body[i].lblName.includes("brk"+lblId)){
+                                    console.log("found a brk for the for loop", proc.body[i].lblName)
                                     break;
                                 }
                             }
@@ -1883,13 +2073,13 @@ namespace ts.pxtc {
                         end+=numEmitted
                         i+=numEmitted
 
-                    } else if(proc.body[i].lblName.includes("cont")){
+                    } else if(proc.body[i].lblName.includes("cont") && 0){
                         let strlen = proc.body[i].lblName.length
                         let idstart = proc.body[i].lblName.lastIndexOf(".")
                         let lblId = proc.body[i].lblName.substring(idstart,strlen)
                         
                         //console.log("this is the lblid!")
-                        //console.log(lblId)
+                        console.log("found a while loop")
 
                         if(incominglblId != lblId){
                             i++
@@ -1907,6 +2097,38 @@ namespace ts.pxtc {
                             i+=numEmitted
                         }
                         
+                        
+                    } else {
+                        //we have a label, checkpoint until the next one
+                        console.log("This is the label I found: ", proc.body[i].lblName)
+                        i++
+                        let newstart = i
+                        while(1){
+                            if(proc.body[i].stmtKind == ir.SK.Label){
+                                console.log("This is the next one I found: ", proc.body[i].lblName)
+                                if(proc.body[i].lblName.includes("brk")){
+                                    //in a loop
+                                    let numEmitted = Checkpoint(proc,newstart+1,i-1,"zzz")   // changed lblId from "", not sure if bug or on purpose
+                                    end+=numEmitted
+                                    i+=numEmitted
+                                    console.log("numemitted = ", numEmitted)
+                                    console.log("i = ", i)
+                                    console.log("end = ", end)
+                                    console.log("length = ",proc.body.length)
+                                } else {
+                                    let numEmitted = Checkpoint(proc,newstart+1,i,"zzz") -1  // changed lblId from "", not sure if bug or on purpose
+                                    end+=numEmitted
+                                    i+=numEmitted
+                                    console.log("numemitted = ", numEmitted)
+                                    console.log("i = ", i)
+                                    console.log("end = ", end)
+                                    console.log("length = ",proc.body.length)
+                                }
+                                
+                                break
+                            }
+                            i++
+                        }
                         
                     }
                 } else if(proc.body[i].expr){
@@ -1930,6 +2152,7 @@ namespace ts.pxtc {
                         }
                     }
                 }
+                
             }
             if(emit_stack.length > 0){
                 emit_stack = [] //ugly hack to fix differential checkpointing, come back to this later
@@ -2039,6 +2262,7 @@ namespace ts.pxtc {
             } else {
                 return 0
             }
+            */
         }
 
         function emitMainStmts(proc: ir.Procedure, target:number){
@@ -2055,7 +2279,7 @@ namespace ts.pxtc {
                 //console.log("mainstart = "+mainstart)
                 Checkpoint(proc, mainstart, proc.body.length-4,"")
             } else {
-                Checkpoint(proc,0,proc.body.length-4,"")
+                //Checkpoint(proc,0,proc.body.length-4,"")
             }
             
 
@@ -2074,21 +2298,48 @@ namespace ts.pxtc {
 
         }
 
-        /*
+        
         function flatten(proc: ir.Procedure){
             for(let i = 0; i<proc.body.length; i++){
-                if(proc.body[i].stmtKind == ir.Expr){
+                if(proc.body[i].stmtKind == ir.SK.Expr){
                     if(proc.body[i].expr.exprKind == ir.EK.ProcCall){
-                        let procnumber = proc.body[i].expr.data.seqNo - 1
-                        if(bin.procs[procnumber].info.decl.parent.getSourceFile().filename == "main.ts"){
-                            for(let j = 0; j < bin.procs[procnumber];j++){
-                                if(j == 0){
-                                    //replace the function call
-                                    proc.body.splice(i+j,1,bin.procs[procnumber].body[j])
+                        //when the expr is a straight proc call
+                        console.log("hello,",proc.body[i].expr.data.proc.seqNo - 1)
+                        if(insertProcinMain(i,proc.body[i].expr.data.proc.seqNo - 1, false)){
+                            fixArgsProcCall(i)
+                        }
+                    
+                    } else if(proc.body[i].expr.exprKind == ir.EK.RuntimeCall){
+                        if(proc.body[i].expr.data == "basic::forever"){
+                            let inlineName =  proc.body[i].expr.args[0].jsInfo.toString()
+                            let inlineID = parseInt(inlineName.substring(inlineName.lastIndexOf("P")+1,inlineName.length))
+                            console.log(inlineName, inlineID)
+                            for(let p = 0; p < bin.procs.length; p++){
+                                
+                                if(bin.procs[p].action){
+                                    if(bin.procs[p].action.pxt){
+                                        if(bin.procs[p].action.pxt.id){
+                                            if(bin.procs[p].action.pxt.id == inlineID){
+                                                insertProcinMain(i,bin.procs[p].seqNo - 1, true)
+                                                    
+                                                
+                                            }
+                                        }
+                                    }
                                 }
-                                //insert the rest of the function
-                                proc.body.splice(i+j,0,bin.procs[procnumber].body[j])
+                                
                             }
+                        }
+                    } else if(proc.body[i].expr.args != null){
+                        //when the proc call is part of an expr
+                        //console.log(proc.body[i])
+                        let procnumber = findProcInExpr(proc.body[i].expr)
+                        //console.log("proc as part of expr",procnumber)
+                        if(procnumber){
+                            if(insertProcinMain(i,procnumber, false)){
+                                fixArgsWhenProcisParam(i,procnumber)
+                            }
+                            
                         }
                         
                     }
@@ -2097,7 +2348,323 @@ namespace ts.pxtc {
             return
             
         }
-        */
+
+        function findandFixandRetProcinExpr(expr: ir.Expr, i:number, procnumber: number){
+            if(expr.args != null){
+                for(let p = 0; p < expr.args.length; p++){
+                    if(expr.args[p].exprKind == ir.EK.ProcCall){
+                        if(expr.args[p].args != null){
+                            let argMap = new Map()
+                            for(let j = 0; j < expr.args[p].args.length;j++){
+                                if(expr.args[p].args[j].exprKind == EK.NumberLiteral || expr.args[p].args[j].exprKind == EK.CellRef){
+                                    let temparg = bin.customArgs.pop()
+                                    bin.varsToCheckpoint.push(temparg)
+                                    let argexpr = new ir.Expr(ir.EK.CellRef, [], temparg)
+                                    argMap.set(expr.args[p].data.proc.args[j].getName(),argexpr)
+                                    let assignlitexpr = new ir.Expr(ir.EK.Store,[argexpr,expr.args[p].args[j]],null)
+                                    let assignstmt = new ir.Stmt(ir.SK.Expr, assignlitexpr)
+                                    bin.procs[0].body.splice(p+i,0,assignstmt)
+                                    expr.args[p] = argexpr
+                                } 
+                            }
+                            let n = i + argMap.size
+                            while(1){
+                                if(bin.procs[0].body[n].stmtKind == ir.SK.Label){
+                                    if(bin.procs[0].body[n].lblName.includes("ret")){
+                                        break
+                                    }
+                                }
+                                else if(bin.procs[0].body[n].stmtKind == ir.SK.Expr){
+                                    for(const [key,value] of argMap.entries()){
+                                        replaceCell(bin.procs[0].body[n].expr, key,value)
+                                    }
+                                    
+                                } else if(bin.procs[0].body[n].stmtKind == ir.SK.Jmp){
+                                    if(bin.procs[0].body[n].lblName.includes("ret")){
+                                        if(bin.procs[0].body[n].expr != null){
+                                            for(const [key,value] of argMap.entries()){
+                                                if(bin.procs[0].body[n].expr.data.getName() == key){
+                                                    //replaceProcWithArg(bin.procs[0].body[i].expr,key, value)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                n++
+                            }
+                            let moveproccall = bin.procs[0].body[i]
+                            bin.procs[0].body.splice(i,1,bin.procs[0].mkLabel("innerprocstart"))
+                            bin.procs[0].body.splice(n,0,moveproccall)
+                        }
+
+                    } else if(expr.args[p].args != null){
+                        findandFixandRetProcinExpr(expr.args[p],i,procnumber)
+                    }
+                }
+            }
+            
+        }
+
+        function fixArgsWhenProcisParam(i:number,procnumber:number){
+            let argMap = new Map()
+            findandFixandRetProcinExpr(bin.procs[0].body[i].expr,i,procnumber)
+        }
+
+        function replaceProcWithArg(currExpr: ir.Expr, key: string, value:ir.Expr){
+            if(currExpr.exprKind == ir.EK.ProcCall){
+                if(currExpr.args != null){
+                    for(let j = 0; j < currExpr.args.length; j++){
+                        if(currExpr.args[j].exprKind == ir.EK.CellRef){
+                            if(currExpr.args[j].data.getName() == key){
+                                currExpr.args[j] = value
+                            }
+                        }
+                    }
+                }
+            } else if(currExpr.args != null){
+                for(let j = 0; j < currExpr.args.length; j++){
+                    replaceProcWithArg(currExpr.args[j],key,value)
+                }
+            }
+        }
+
+        function fixArgsProcCall(i:number){
+            let newArgExprs = new Array()
+            let argMap = new Map()
+            if(bin.procs[0].body[i].expr.args!= null){
+                //initialize args to input parameters
+                for(let j = 0; j < bin.procs[0].body[i].expr.args.length; j++){
+                    if(bin.procs[0].body[i].expr.args[j].exprKind == EK.NumberLiteral){
+                        let argarrexpr = new ir.Expr(ir.EK.CellRef, [], bin.argarr)
+                        let argposexpr = new ir.Expr(ir.EK.NumberLiteral, [],bin.argarrpos)
+                        
+                        let argarrassignexpr = new ir.Expr(ir.EK.RuntimeCall,[argarrexpr,argposexpr,bin.procs[0].body[i].expr.args[j]],"Array_::setAt")
+                        let argarrstmt = new ir.Stmt(ir.SK.Expr, argarrassignexpr)
+
+                        let argarrGetAtExpr = new ir.Expr(ir.EK.RuntimeCall,[argarrexpr,argposexpr],"Array_::getAt")
+                        let getAtStmt = new ir.Stmt(ir.SK.Expr, argarrGetAtExpr)
+                        bin.argarrpos++
+
+                        let temparg = bin.customArgs.pop()
+                        bin.varsToCheckpoint.push(temparg)
+                        let argexpr = new ir.Expr(ir.EK.CellRef, [], temparg)
+                        newArgExprs.push(argexpr)
+                        argMap.set(bin.procs[0].body[i].expr.data.proc.args[j].getName(),argexpr)
+                        let assignlitexpr = new ir.Expr(ir.EK.Store,[argexpr,bin.procs[0].body[i].expr.args[j]],null)
+                        let assignstmt = new ir.Stmt(ir.SK.Expr,assignlitexpr)
+                        //bin.procs[0].body.splice(i+j+1,0,argarrstmt)
+                        bin.procs[0].body.splice(i+j+1,0,assignstmt)
+                    }
+                }
+                bin.procs[0].body.splice(i,1,bin.procs[0].mkLabel("startproc"))
+                //start fixing variables from the identified proc + the number of initialization
+                let p = i + newArgExprs.length
+                while(1){
+                    if(bin.procs[0].body[p].stmtKind == ir.SK.Label){
+                        if(bin.procs[0].body[p].lblName.includes("ret")){
+                            break
+                        }
+                    }
+                    else if(bin.procs[0].body[p].stmtKind == ir.SK.Expr){
+
+                        for(const [key,value] of argMap.entries()){
+                            //console.log("normal replacing")
+                            replaceCell(bin.procs[0].body[p].expr, key,value)
+                        }
+                        /*
+                        if(bin.procs[0].body[p].expr.exprKind == ir.EK.Store){
+                            //replace arg0 because store is different
+
+                            //the rest of the args are array get at
+                            for(let k = 0; k < bin.procs[0].body[p].expr.args.length; k++){
+                                for(const [key,value] of argMap.entries()){
+                                    console.log("found a store, replacing")
+                                    replaceCell(bin.procs[0].body[p].expr.args[k], key,value)
+                                }
+                            }
+                        } else {
+                            for(const [key,value] of argMap.entries()){
+                                console.log("normal replacing")
+                                replaceCell(bin.procs[0].body[p].expr, key,value)
+                            }
+                        }
+                        */
+                        
+                        
+                    } else if(bin.procs[0].body[p].stmtKind == ir.SK.Jmp){
+                        if(bin.procs[0].body[p].lblName.includes("ret")){
+                            if(bin.procs[0].body[p].expr != null){
+                                for(const [key,value] of argMap.entries()){
+                                    if(bin.procs[0].body[p].expr.data.getName() == key){
+                                        bin.procs[0].body[p].expr = value
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    p++
+                }
+            }
+        }
+
+        function replaceCell(curExpr: ir.Expr, replacementName: string, newExpr: ir.Expr){
+            //need to copy and replace, not edit!!!!!!!!!!!!!
+            if(curExpr.args != null){
+                for(let i = 0; i < curExpr.args.length; i++){
+                    if(curExpr.args[i].exprKind == ir.EK.CellRef){
+                        if(curExpr.args[i].data.getName() == replacementName){
+                            curExpr.args.splice(i,1,newExpr)
+                        }
+                    }
+                    replaceCell(curExpr.args[i],replacementName,newExpr)
+                }
+            }
+            
+        }
+
+        function findProcInExpr(expr: ir.Expr): number{
+
+            if(expr.exprKind == ir.EK.ProcCall){
+                return expr.data.proc.seqNo - 1
+            } else if(expr.args == null){
+                return 0
+            } else {
+                let num = 0
+                for(let i = 0; i < expr.args.length; i++){
+                    let temp = findProcInExpr(expr.args[i])
+                    if(temp > 0){
+                        //this only allows for a single proc to be found, will need to update later
+                        num = temp
+                    }
+                }
+                return num
+            }
+            /*
+            console.log("in findProc, ",expr)
+            for(let i = 0; i < expr.args.length; i++){
+                if(expr.args[i].exprKind == ir.EK.ProcCall){
+                    console.log("found proccall, ",expr)
+                    return expr.args[i].data.proc.seqNo - 1
+                } else if(expr.args[i].args != null){
+                    console.log()
+                    return findProcInExpr(expr.args[i])
+                }
+            }
+            return 0
+            */
+        }
+
+        function insertProcinMain(i: number, procnumber: number, isbasicforever:boolean):boolean{
+            console.log("entered insertprocinmain")
+            
+           
+            if(bin.procs[procnumber].info.decl.parent.getSourceFile().fileName == "main.ts"){
+
+                for(let j = 0; j < bin.procs[procnumber].body.length;j++){
+                    
+                    /*
+                    if(j == 0){
+                        //replace the function call
+                        bin.procs[0].body.splice(i+j,1,bin.procs[procnumber].body[j])
+                    } else {
+                        //insert the rest of the function
+                        bin.procs[0].body.splice(i+j,0,bin.procs[procnumber].body[j])
+                    }
+                    
+                    */
+
+                    //need to do deep copy!
+
+                    let temp_stmt_kind = bin.procs[procnumber].body[j].stmtKind
+                   
+                    //console.log("Curr stmt: ", bin.procs[procnumber].body[j])
+
+                    switch(temp_stmt_kind){
+                        case 1:
+                            //console.log("inserting expr")
+                            let temp_expr = deepCopy(bin.procs[procnumber].body[j].expr)
+                            let temp_stmt = new ir.Stmt(ir.SK.Expr, temp_expr)
+                            bin.procs[0].body.splice(i+1+j,0,temp_stmt)
+                            break
+                        case 2:
+                            if(bin.procs[procnumber].body[j].lblName.includes("ret")){
+                                if(isbasicforever){
+                                    let startlbl = bin.procs[0].mkLabel("basicforevertop")
+                                    let endlabel = bin.procs[0].mkLabel("endbasicforever")
+                                    let goto_stmt = new ir.Stmt(3,null)
+                                    goto_stmt.lbl = startlbl
+                                    goto_stmt.lblName = startlbl.lblName
+                                    goto_stmt.jmpMode = ir.JmpMode.Always
+                                    bin.procs[0].body.splice(i,1,startlbl)
+                                    bin.procs[0].body.splice(i+j+1,0,goto_stmt)
+                                    bin.procs[0].body.splice(i+j+1,0,endlabel)
+                                } else {
+                                    let endlabel = bin.procs[0].mkLabel("myret")
+                                    bin.procs[0].body.splice(i+1+j,0,endlabel)
+                                }
+                                
+                                return true
+                            }
+                        case 3:
+                            //console.log("found jmp")
+                            if(bin.procs[procnumber].body[j].lblName.includes("ret")){
+                                let endlabel = bin.procs[0].mkLabel("myret")
+                                bin.procs[0].body.splice(i+1+j,0,endlabel)
+                                return true
+                            }
+                            
+                        default:
+                            //console.log("default splice")
+                            bin.procs[0].body.splice(i+1+j,0,bin.procs[procnumber].body[j])
+                            break
+                    }
+
+                    /*
+                    
+                    if(bin.procs[procnumber].body[j].stmtKind == ir.SK.Label){
+                        if(bin.procs[procnumber].body[j].lblName.includes("ret")){
+                            break
+                        }
+                    }
+                    */
+                    
+                    
+                }
+                console.log("done inserting")
+                return true
+            } else {
+                return false
+            }
+        }
+
+        function deepCopy(input:ir.Expr):ir.Expr{
+            //this is the problem, I am only copying data
+            let argarr = new Array()
+            if(input.args != null){
+                for(let i = 0; i < input.args.length; i++){
+                    argarr[i] = new ir.Expr(0,[],null)
+                }
+            }
+            let newExpr = new ir.Expr(input.exprKind,argarr,input.data)
+            //because I anticipate more
+            
+            newExpr.callingConvention = input.callingConvention
+            newExpr.isStringLiteral = input.isStringLiteral
+            newExpr.jsInfo = input.jsInfo
+            newExpr.mask = input.mask
+            
+            
+             
+            if(input.args != null){
+                for(let i = 0; i < input.args.length; i++){
+                    newExpr.args[i] = deepCopy(input.args[i])
+                }
+            } else {
+                newExpr.args = null
+            }
+            return newExpr
+        }
+        
 
         function getBufr(){
             //this will eventually create a bufr from scratch, but for now we find it
@@ -6018,6 +6585,9 @@ ${lbl}: .short 0xffff
         writeEnableStmt: ir.Stmt;
         checklabel: ir.Stmt[] = [];
         label_cell: ir.Cell;
+        customArgs: ir.Cell[] = [];
+        argarr: ir.Cell;
+        argarrpos = 0;
 
         reset() {
             this.lblNo = 0
