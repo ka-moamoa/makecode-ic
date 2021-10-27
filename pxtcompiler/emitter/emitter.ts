@@ -1186,30 +1186,14 @@ namespace ts.pxtc {
             if(glb_var.getName() == "label"){
                 bin.label_cell = glb_var
             }
-            if(glb_var.getName() == "arg0"){
-                bin.customArgs[0] = glb_var
+            if(glb_var.getName().includes("customMKArg")){
+                bin.customArgs.push(glb_var)
             }
-            if(glb_var.getName() == "arg1"){
-                bin.customArgs[1] = glb_var
-            }
-            if(glb_var.getName() == "arg2"){
-                bin.customArgs[2] = glb_var
-            }
-            if(glb_var.getName() == "arg3"){
-                bin.customArgs[3] = glb_var
-            }
-            if(glb_var.getName() == "arg4"){
-                bin.customArgs[4] = glb_var
-            }
-            if(glb_var.getName() == "arg5"){
-                bin.customArgs[5] = glb_var
-            }
-            if(glb_var.getName() == "argarr"){
-                bin.argarr = glb_var
-            }
+            
         }
         if(addIntermitent){
             flatten(bin.procs[0])
+            fixLabels()
             codeAnalysis()
             if(bin.varsToCheckpoint.length > 0){
                 setup()
@@ -1706,7 +1690,7 @@ namespace ts.pxtc {
                     */
                     if(count > 1 ){
                         glb_var.isModified = true
-                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "generation" && !glb_var.getName().includes("arg")){
+                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "generation" && !glb_var.getName().includes("customMKArg")){
                             bin.varsToCheckpoint.push(glb_var)
                         }
                         
@@ -1923,6 +1907,9 @@ namespace ts.pxtc {
                         for(let i = 0; i < bin.varsToCheckpoint.length; i++){
                             emit_stack.push(bin.setMap.get(bin.varsToCheckpoint[i].getName()))
                         }
+
+                        //console.log(bin.setMap)
+                        //console.log(emit_stack)
 
 
                         emit_stack.push(bin.gen_invert)
@@ -2298,6 +2285,65 @@ namespace ts.pxtc {
 
         }
 
+        function fixLabels(){
+            let labelMap = new Map()
+            let brkMap = new Map()
+            for(let i = 0; i < bin.procs[0].body.length; i++){
+                if(bin.procs[0].body[i].stmtKind == ir.SK.Label){
+                    if(bin.procs[0].body[i].lblName.includes("fortop")){
+                        let lblindex = bin.procs[0].body[i].lblName.lastIndexOf(".")
+                        let lbllength = bin.procs[0].body[i].lblName.length
+                        let labelid = bin.procs[0].body[i].lblName.substring(lblindex,lbllength)
+                        console.log("LABEL ID ",labelid)
+                        let newlabel = bin.procs[0].mkLabel("fortop"+i)
+                        let brklabel = bin.procs[0].mkLabel("brk"+i)
+                        bin.procs[0].body[i] = newlabel
+                        labelMap.set(labelid,newlabel)
+                        brkMap.set(labelid,brklabel)
+                    } else if(bin.procs[0].body[i].lblName.includes("cont")){
+                        let labelid = bin.procs[0].body[i].lblName.substring(bin.procs[0].body[i].lblName.lastIndexOf("."),bin.procs[0].body[i].lblName.length)
+                        console.log("LABEL ID ",labelid)
+                        if(labelMap.has(labelid)){
+                            //replace
+                            let newlabel = bin.procs[0].mkLabel("cont"+labelMap.get(labelid))
+                            bin.procs[0].body[i] = newlabel
+                        } else {
+                            let newlabel = bin.procs[0].mkLabel("cont"+i)
+                            labelMap.set(labelid,newlabel)
+                            brkMap.set(labelid,bin.procs[0].mkLabel("brk"+i))
+                            bin.procs[0].body[i] = newlabel
+                        }
+
+                    } else if(bin.procs[0].body[i].lblName.includes("brk")){
+                        let labelid = bin.procs[0].body[i].lblName.substring(bin.procs[0].body[i].lblName.lastIndexOf("."),bin.procs[0].body[i].lblName.length)
+                        console.log("LABEL ID ",labelid)
+                        if(brkMap.has(labelid)){
+                            //replace
+                            //remove fram map
+                            bin.procs[0].body[i] = brkMap.get(labelid)
+                            labelMap.delete(labelid)
+                            brkMap.delete(labelid)
+                        } else {
+                            console.log(bin.procs[0].body[i])
+                        }
+                    }
+                } else if(bin.procs[0].body[i].stmtKind == ir.SK.Jmp){
+                    let labelid = bin.procs[0].body[i].lblName.substring(bin.procs[0].body[i].lblName.lastIndexOf("."),bin.procs[0].body[i].lblName.length)
+                    if(bin.procs[0].body[i].jmpMode == ir.JmpMode.Always){
+                        if(labelMap.has(labelid)){
+                            bin.procs[0].body[i].lbl = labelMap.get(labelid)
+                            bin.procs[0].body[i].lblName = labelMap.get(labelid).lblName
+                        }
+                    } else {
+                        if(brkMap.has(labelid)){
+                            bin.procs[0].body[i].lbl = brkMap.get(labelid)
+                            bin.procs[0].body[i].lblName = brkMap.get(labelid).lblName
+                        }
+                    }
+                }
+            }
+        }
+
         
         function flatten(proc: ir.Procedure){
             for(let i = 0; i<proc.body.length; i++){
@@ -2582,11 +2628,16 @@ namespace ts.pxtc {
                     switch(temp_stmt_kind){
                         case 1:
                             //console.log("inserting expr")
+                            /*
                             let temp_expr = deepCopy(bin.procs[procnumber].body[j].expr)
                             let temp_stmt = new ir.Stmt(ir.SK.Expr, temp_expr)
                             bin.procs[0].body.splice(i+1+j,0,temp_stmt)
                             break
+                            */
+                            bin.procs[0].body.splice(i+1+j,0,deepCopyStmt(bin.procs[procnumber].body[j]))
+                            break
                         case 2:
+                            console.log("found lbl ", bin.procs[procnumber].body[j])
                             if(bin.procs[procnumber].body[j].lblName.includes("ret")){
                                 if(isbasicforever){
                                     let startlbl = bin.procs[0].mkLabel("basicforevertop")
@@ -2605,17 +2656,33 @@ namespace ts.pxtc {
                                 
                                 return true
                             }
+                            bin.procs[0].body.splice(i+1+j,0,deepCopyStmt(bin.procs[procnumber].body[j]))
+                            break
                         case 3:
-                            //console.log("found jmp")
+                            console.log("found jmp ", bin.procs[procnumber].body[j])
                             if(bin.procs[procnumber].body[j].lblName.includes("ret")){
                                 let endlabel = bin.procs[0].mkLabel("myret")
                                 bin.procs[0].body.splice(i+1+j,0,endlabel)
                                 return true
+                            } /*else {
+                                //fisahd[uhfi[asubg[fgba]]]
+                                let temp_expr = null
+                                if(bin.procs[procnumber].body[j].expr != null){
+                                    temp_expr = deepCopy(bin.procs[procnumber].body[j].expr)
+                                }
+                                
+                                let temp_stmt = new ir.Stmt(ir.SK.Jmp, temp_expr)
+                                temp_stmt.lbl = bin.procs[procnumber].body[j].lbl
+                                temp_stmt.lblName = bin.procs[procnumber].body[j].lblName
+                                bin.procs[0].body.splice(i+j,1,temp_stmt)
+                                break
                             }
-                            
+                            */
+                            bin.procs[0].body.splice(i+1+j,0,deepCopyStmt(bin.procs[procnumber].body[j]))
+                            break
                         default:
                             //console.log("default splice")
-                            bin.procs[0].body.splice(i+1+j,0,bin.procs[procnumber].body[j])
+                            bin.procs[0].body.splice(i+1+j,0,deepCopyStmt(bin.procs[procnumber].body[j]))
                             break
                     }
 
@@ -2637,7 +2704,27 @@ namespace ts.pxtc {
             }
         }
 
-        function deepCopy(input:ir.Expr):ir.Expr{
+
+        function deepCopyStmt(input: ir.Stmt):ir.Stmt{
+            let newStmt = new ir.Stmt(input.stmtKind,input.expr)
+            if(input.expr != null){
+                newStmt.expr = deepCopyExpr(input.expr)
+            }
+            if(input.jmpMode){
+                newStmt.jmpMode = input.jmpMode
+            }
+            if(input.lblName){
+                newStmt.lbl = input.lbl
+                newStmt.lblName = input.lblName
+                newStmt.lblId = input.lblId
+            }
+            if(input.terminateExpr){
+                newStmt.terminateExpr = input.terminateExpr
+            }
+            return newStmt
+        }
+
+        function deepCopyExpr(input:ir.Expr):ir.Expr{
             //this is the problem, I am only copying data
             let argarr = new Array()
             if(input.args != null){
@@ -2657,7 +2744,7 @@ namespace ts.pxtc {
              
             if(input.args != null){
                 for(let i = 0; i < input.args.length; i++){
-                    newExpr.args[i] = deepCopy(input.args[i])
+                    newExpr.args[i] = deepCopyExpr(input.args[i])
                 }
             } else {
                 newExpr.args = null
