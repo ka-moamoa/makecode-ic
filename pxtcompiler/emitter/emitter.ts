@@ -2288,6 +2288,7 @@ namespace ts.pxtc {
         function fixLabels(){
             let labelMap = new Map()
             let brkMap = new Map()
+            let ifelseMap = new Map()
             for(let i = 0; i < bin.procs[0].body.length; i++){
                 if(bin.procs[0].body[i].stmtKind == ir.SK.Label){
                     if(bin.procs[0].body[i].lblName.includes("fortop")){
@@ -2326,6 +2327,12 @@ namespace ts.pxtc {
                         } else {
                             console.log(bin.procs[0].body[i])
                         }
+                    } else if(bin.procs[0].body[i].lblName.includes("else") || bin.procs[0].body[i].lblName.includes("afterif")){
+                        let label = bin.procs[0].body[i].lblName
+                        if(ifelseMap.has(bin.procs[0].body[i].lblName)){
+                            bin.procs[0].body[i] = ifelseMap.get(label)
+                            ifelseMap.delete(label)
+                        }
                     }
                 } else if(bin.procs[0].body[i].stmtKind == ir.SK.Jmp){
                     let labelid = bin.procs[0].body[i].lblName.substring(bin.procs[0].body[i].lblName.lastIndexOf("."),bin.procs[0].body[i].lblName.length)
@@ -2333,11 +2340,27 @@ namespace ts.pxtc {
                         if(labelMap.has(labelid)){
                             bin.procs[0].body[i].lbl = labelMap.get(labelid)
                             bin.procs[0].body[i].lblName = labelMap.get(labelid).lblName
+                        } else if(bin.procs[0].body[i].lblName.includes("afterif")){
+                            let label = bin.procs[0].body[i].lblName
+                            let newlabel = bin.procs[0].mkLabel("afterif")
+                            ifelseMap.set(label, newlabel)
+                            bin.procs[0].body[i].lbl = newlabel
+                            bin.procs[0].body[i].lblName = newlabel.lblName
                         }
+                        
                     } else {
                         if(brkMap.has(labelid)){
                             bin.procs[0].body[i].lbl = brkMap.get(labelid)
                             bin.procs[0].body[i].lblName = brkMap.get(labelid).lblName
+                        } else if(bin.procs[0].body[i].lblName.includes("else")){
+                            let label = bin.procs[0].body[i].lblName
+                            let newlabel = bin.procs[0].mkLabel("else")
+                            console.log(bin.procs[0].body[i].lblName)
+                            console.log(bin.procs[0].body[i].lblName.lastIndexOf(":"))
+                            console.log("HEY WHAT IS THIS",label)
+                            ifelseMap.set(label, newlabel)
+                            bin.procs[0].body[i].lbl = newlabel
+                            bin.procs[0].body[i].lblName = newlabel.lblName
                         }
                     }
                 }
@@ -2352,6 +2375,7 @@ namespace ts.pxtc {
                         //when the expr is a straight proc call
                         console.log("hello,",proc.body[i].expr.data.proc.seqNo - 1)
                         if(insertProcinMain(i,proc.body[i].expr.data.proc.seqNo - 1, false)){
+                            console.log("fixing args for proc ", bin.procs[proc.body[i].expr.data.proc.seqNo - 1])
                             fixArgsProcCall(i)
                         }
                     
@@ -2480,7 +2504,7 @@ namespace ts.pxtc {
             if(bin.procs[0].body[i].expr.args!= null){
                 //initialize args to input parameters
                 for(let j = 0; j < bin.procs[0].body[i].expr.args.length; j++){
-                    if(bin.procs[0].body[i].expr.args[j].exprKind == EK.NumberLiteral){
+                    if(bin.procs[0].body[i].expr.args[j].exprKind == EK.NumberLiteral || bin.procs[0].body[i].expr.args[j].exprKind == EK.CellRef){
                         let argarrexpr = new ir.Expr(ir.EK.CellRef, [], bin.argarr)
                         let argposexpr = new ir.Expr(ir.EK.NumberLiteral, [],bin.argarrpos)
                         
