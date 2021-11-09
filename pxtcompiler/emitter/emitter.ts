@@ -1976,7 +1976,7 @@ namespace ts.pxtc {
                             emit_stack.unshift(jitif_stmt)
                             emit_stack.push(elselbl)
                         } else if(bin.optimization == 3){
-                            if(incominglblId != ""){
+                            //if(incominglblId != ""){
                                 let weight_cellref_expr = new ir.Expr(9, null, bin.opt_cell)
                                 let val_expr = new ir.Expr(1, null, valueEncode(bin.opt_val))
                                 let numops_gt_expr = new ir.Expr(3,[weight_cellref_expr,val_expr], "numops::gt")
@@ -1999,7 +1999,7 @@ namespace ts.pxtc {
 
                                 //one of these expressions is fucking things up when it is emitted
 
-                            }
+                            //}
                         }
 
                         //add label at the end of each checkpoint
