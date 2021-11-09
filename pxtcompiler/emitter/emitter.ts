@@ -1195,8 +1195,11 @@ namespace ts.pxtc {
             flatten(bin.procs[0])
             fixLabels()
             codeAnalysis()
+            console.log("vars to check length: ", bin.varsToCheckpoint.length)
             if(bin.varsToCheckpoint.length > 0){
+                console.log("before setup")
                 setup()
+                console.log("after setup")
                 codeTransformations()
             }
             
@@ -1303,7 +1306,7 @@ namespace ts.pxtc {
 
         //my functions
         function setup(){
-            getBufr()
+            //getBufr()
             buildInstructions()
         }
 
@@ -1312,7 +1315,11 @@ namespace ts.pxtc {
         }
 
         function codeTransformations(){
+
+            runOnProc(bin.procs[0])
+            run2OnProc(bin.procs[0])
             
+            /*
             
             for(let prc of bin.procs){
                 
@@ -1324,8 +1331,10 @@ namespace ts.pxtc {
                         if(prc.info.decl.parent){
                             
                             if(prc.info.decl.parent.getSourceFile()){
+
+                                console.log(prc.info.decl.parent.getSourceFile())
                               
-                                if(prc.info.decl.parent.getSourceFile().fileName == "main.ts"){
+                                if(prc.info.decl.parent.getSourceFile().fileName.includes("main.ts")){
                                     runOnProc(prc)
                                 }
                             }
@@ -1362,6 +1371,7 @@ namespace ts.pxtc {
                
                 
             }
+            */
 
             
         }
@@ -1690,7 +1700,7 @@ namespace ts.pxtc {
                     */
                     if(count > 1 ){
                         glb_var.isModified = true
-                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "generation" && !glb_var.getName().includes("customMKArg")){
+                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "gencopy" && glb_var.getName() != "generation" && !glb_var.getName().includes("customMKArg")){
                             bin.varsToCheckpoint.push(glb_var)
                         }
                         
@@ -1885,6 +1895,8 @@ namespace ts.pxtc {
             
             let i = start
 
+            console.log(start, end)
+
             while(1){
                 if(proc.body[i].stmtKind == ir.SK.Label){
                     if(proc.body[i].lblName.includes("final")){
@@ -1998,6 +2010,8 @@ namespace ts.pxtc {
                         emit_stack.push(checkpointlabel)
                         bin.checklabel.push(checkpointlabel)
                         if(proc.body[i].lblName.includes("brk")){
+                            emitBlockInPlace(proc,i-1,emit_stack)
+                        } else if(proc.body[i].lblName.includes("else")){
                             emitBlockInPlace(proc,i-1,emit_stack)
                         } else {
                             emitBlockInPlace(proc,i,emit_stack)
@@ -2260,10 +2274,10 @@ namespace ts.pxtc {
         function runOnProc(proc: ir.Procedure){
 
             //need to find a way to make sure only the user program is transformmed
-            
+            console.log("proc name ",proc.getName())
             if(proc.getName() == "<main>"){
                 let mainstart = mainBoilerplate(proc,0,proc.body.length)
-                //console.log("mainstart = "+mainstart)
+                console.log("mainstart = "+mainstart)
                 Checkpoint(proc, mainstart, proc.body.length-4,"")
             } else {
                 //Checkpoint(proc,0,proc.body.length-4,"")
@@ -2805,7 +2819,7 @@ namespace ts.pxtc {
             }
             if(bin.saveBufferCell == null){
                 console.log("THERE IS NO BUFFER")
-                throw "NO BUFFER"
+                //throw "NO BUFFER"
             }
         }
 
