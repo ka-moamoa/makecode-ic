@@ -2448,7 +2448,7 @@ namespace ts.pxtc {
                                     let assignlitexpr = new ir.Expr(ir.EK.Store,[argexpr,expr.args[p].args[j]],null)
                                     let assignstmt = new ir.Stmt(ir.SK.Expr, assignlitexpr)
                                     bin.procs[0].body.splice(p+i,0,assignstmt)
-                                    expr.args[p] = argexpr
+                                    expr.args[p] = argexpr // this is where the proc call is replaced by the custom arg, easy to miss
                                 } 
                             }
                             let n = i + argMap.size
