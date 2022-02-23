@@ -1,3 +1,17 @@
+# MakeCode-Iceberg
+
+MakeCode-Iceberg is a modification to [Microsoft's MakeCode](https://makecode.com) that automatically produces code that works despite intermittent, whole system power failures. MakeCode-Iceberg is currently configured to work with the Microbit version of MakeCode. This system uses compiler modifications to analyze and transform a user's code to interact with a custom FRAM driver for an external FRAM breakout board. 
+
+
+## Project Overview
+
+
+## How it Works
+
+
+## Getting Started
+
+
 # Microsoft MakeCode
 
 * [Try out the editors in your browser...](https://makecode.com)
