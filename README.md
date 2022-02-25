@@ -8,8 +8,15 @@ MakeCode-Iceberg is a modification to [Microsoft's MakeCode](https://makecode.co
 
 ## How it Works
 
+MakeCode-Iceberg is largely a modification to pxtcompiler/emitter/emitter.ts in the compileBinary() function. This system takes the Intermediate Representation(IR) output from the MakeCode pxt compiler and modifies it to work under harvested energy. Currently, the system performs a function inlining pass on the user's program to make the program control flow simpler. Next, the compiler analyzes the state of the program(global number variables) and builds FRAM read and write instructions for each one. Lastly, the compiler inserts checkpoints at the end of basic blocks that contain state modifing code(ex. an assignment to a global variable of interest) and inserts a restore operation at the top of the program to load checkpoints. The program will perform normal execution and save checkpoints until power is lost. The restore operation at the top of the program will check if a checkpoint is avaiable and load it if so, then jump back to the location of the last checkpoint where normal operation will resume.
+
 
 ## Getting Started
+
+### Using our Server
+
+
+### Building Locally
 
 
 # Microsoft MakeCode
