@@ -13,7 +13,16 @@ MakeCode-Iceberg is largely a modification to pxtcompiler/emitter/emitter.ts in 
 
 ## Getting Started
 
-### Using our Server
+### Using our Server(Microbit)
+
+* Go to our [MakeCode-Iceberg Server](https://microbit-ic-jyd3j.ondigitalocean.app/)
+* Click "import" and then "import url"
+* Paste this github link https://github.com/chrispkraemer/fram-driver-iceberg
+* Start a new project
+* Add the fram driver as an extension by clicking on "Advanced" and then "Extensions"
+* Click on the FRAM Driver local extension to add it to your MakeCode project
+* Add `fram.init()` to the top of your program
+* Begin coding
 
 
 ### Building Locally
