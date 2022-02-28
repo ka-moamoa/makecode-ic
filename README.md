@@ -15,18 +15,67 @@ MakeCode-Iceberg is largely a modification to pxtcompiler/emitter/emitter.ts in 
 
 ### Using our Server(Microbit)
 
-* Go to our [MakeCode-Iceberg Server](https://microbit-ic-jyd3j.ondigitalocean.app/)
-* Click "import" and then "import url"
-* Paste this github link https://github.com/chrispkraemer/fram-driver-iceberg
-* Start a new project
-* Add the fram driver as an extension by clicking on "Advanced" and then "Extensions"
-* Click on the FRAM Driver local extension to add it to your MakeCode project
-* Add `fram.init()` to the top of your program
-* Begin coding
+1. Go to our [MakeCode-Iceberg Server](https://microbit-ic-jyd3j.ondigitalocean.app/)
+2. Click "import" and then "import url"
+3. Paste this github link https://github.com/chrispkraemer/fram-driver-iceberg
+4. Start a new project
+5. Add the fram driver as an extension by clicking on "Advanced" and then "Extensions"
+6. Click on the FRAM Driver local extension to add it to your MakeCode project
+7. Add `fram.init()` to the top of your program
+8. Begin coding
 
 
 ### Building Locally
 
+1. Install Node.js 8.9.4 or higher
+2. Clone this repo
+
+```
+git clone https://github.com/ka-moamoa/makecode-ic
+cd makecode-ic
+```
+3. Install dependencies
+```
+npm install
+npm run build
+cd ..
+```
+4. Clone pxt-common packages
+```
+git clone https://github.com/microsoft/pxt-common-packages
+cd pxt-common-packages
+npm install
+cd ..
+```
+5. Clone the pxt-microbit repository
+```
+git clone https://github.com/microsoft/pxt-microbit
+cd pxt-microbit
+```
+6. Install PXT command line
+```
+npm install -g pxt
+```
+7. Install pxt-microbit dependencies
+```
+npm install
+```
+8. Link each pxt directory from the microbit directory
+```
+pxt link ../pxt
+pxt link ../pxt-common-packages
+```
+9. Run the server
+```
+pxt serve
+```
+10. Click "import" and then "import url"
+11. Paste this github link https://github.com/chrispkraemer/fram-driver-iceberg
+12. Start a new project
+13. Add the fram driver as an extension by clicking on "Advanced" and then "Extensions"
+14. Click on the FRAM Driver local extension to add it to your MakeCode project
+15. Add `fram.init()` to the top of your program
+16. Begin coding
 
 # Microsoft MakeCode
 
