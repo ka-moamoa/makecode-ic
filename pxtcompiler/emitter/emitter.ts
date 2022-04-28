@@ -3,6 +3,10 @@
 
 
 
+
+
+
+
 namespace ts {
     export interface Node {
         pxt: pxtc.PxtNode;
@@ -1390,6 +1394,12 @@ namespace ts.pxtc {
             let fram_read8_index
             let fram_write8_index
             let fram_writeEnable_index
+            let fram_writeArray_index
+            let fram_writeString_index
+            let fram_writeBoolean_index
+            let fram_readArray_index
+            let fram_readString_index
+            let fram_readBoolean_index
 
             
 
@@ -1418,6 +1428,60 @@ namespace ts.pxtc {
                 if(bin.procs[i].getName() == "writeEnable"){
                     fram_writeEnable_index = i
                 }
+                if(bin.procs[i].getName() == "writeArray"){
+                    fram_writeArray_index = i
+                }
+                if(bin.procs[i].getName() == "readArray"){
+                    fram_readArray_index = i
+                }
+                if(bin.procs[i].getName() == "writeString"){
+                    fram_writeString_index = i
+                }
+                if(bin.procs[i].getName() == "readString"){
+                    fram_readString_index = i
+                }
+                if(bin.procs[i].getName() == "readBoolean"){
+                    fram_readBoolean_index = i
+                }
+                if(bin.procs[i].getName() == "writeBoolean"){
+                    fram_writeBoolean_index = i
+                }
+            }
+            let fram_writeArray_procid: ir.ProcId = {
+                proc: bin.procs[fram_writeArray_index],
+                callLocationIndex: 39,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_readArray_procid: ir.ProcId = {
+                proc: bin.procs[fram_readArray_index],
+                callLocationIndex: 39,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_readString_procid: ir.ProcId = {
+                proc: bin.procs[fram_readString_index],
+                callLocationIndex: 39,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_writeString_procid: ir.ProcId = {
+                proc: bin.procs[fram_writeString_index],
+                callLocationIndex: 39,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_writeBoolean_procid: ir.ProcId = {
+                proc: bin.procs[fram_writeBoolean_index],
+                callLocationIndex: 39,
+                virtualIndex: null,
+                ifaceIndex: null
+            }
+            let fram_readBoolean_procid: ir.ProcId = {
+                proc: bin.procs[fram_readBoolean_index],
+                callLocationIndex: 39,
+                virtualIndex: null,
+                ifaceIndex: null
             }
             let fram_writeEnable_procid: ir.ProcId = {
                 proc: bin.procs[fram_writeEnable_index],
@@ -1450,6 +1514,15 @@ namespace ts.pxtc {
                 ifaceIndex: null
             }
 
+            let arraylength = (25 * 4) + 1 // 25 elements 
+
+            let bufferAddrSize = 1 + (bin.varsToCheckpoint.length * 4) + (bin.boolsToCheckpoint.length) + (bin.arraysToCheckpoint.length * arraylength) + 
+                (bin.stringsToCheckpoint.length * arraylength)
+            if(bufferAddrSize > 3999){
+                console.log("Not enough fram space " + bufferAddrSize)
+                throw "Not enough FRAM Space"
+            }
+
             let set_map = new Map()
             let get_map = new Map()
             for(let i = 0; i<bin.varsToCheckpoint.length; i++){
@@ -1458,7 +1531,7 @@ namespace ts.pxtc {
                 //expr3 is the variable
                 let val_expr = new ir.Expr(9,null,bin.varsToCheckpoint[i])
                 //build address length (for double buffering)
-                let addrlength_expr = new ir.Expr(1, null, valueEncode(bin.varsToCheckpoint.length * 4))
+                let addrlength_expr = new ir.Expr(1, null, valueEncode(bufferAddrSize))
                 //build the total expression
                 let write_number_expr = new ir.Expr(4,[addr_expr,val_expr, addrlength_expr],fram_write_number_procid)
                 let read_number_expr = new ir.Expr(4,[addr_expr, addrlength_expr],fram_read_number_procid)
@@ -1468,6 +1541,55 @@ namespace ts.pxtc {
                 set_map.set(bin.varsToCheckpoint[i].getName(),write_stmt)
                 get_map.set(bin.varsToCheckpoint[i].getName(),read_stmt)
             }
+
+            let booladdrbegin = ((bin.varsToCheckpoint.length * 4)) + 1
+            let bytesNeededforBool = Math.ceil(bin.boolsToCheckpoint.length / 8)
+            for(let i = 0; i < bin.boolsToCheckpoint.length; i++){
+                //use one bit for each bool (SAVE THIS FOR LATER)
+                let addr_expr = new ir.Expr(1, null, (valueEncode(booladdrbegin + (i))))
+                let val_expr = new ir.Expr(9, null, bin.boolsToCheckpoint[i])
+                let addrlength_expr = new ir.Expr(1, null, valueEncode(bufferAddrSize))
+                let write_bool_expr = new ir.Expr(4, [addr_expr, val_expr, addrlength_expr], fram_writeBoolean_procid)
+                let read_bool_expr = new ir.Expr(4,[addr_expr, addrlength_expr],fram_readBoolean_procid)
+                let assign_read_bool_expr = new ir.Expr(ir.EK.Store, [val_expr, read_bool_expr],null)
+                let write_bool_stmt = new ir.Stmt(1, write_bool_expr)
+                let read_bool_stmt = new ir.Stmt(1, assign_read_bool_expr)
+                set_map.set(bin.boolsToCheckpoint[i].getName(),write_bool_stmt)
+                get_map.set(bin.boolsToCheckpoint[i].getName(),read_bool_stmt)
+            }
+
+            let arrayAddrBegin = (booladdrbegin + bin.boolsToCheckpoint.length) //4 bytes each, double buffer, plus 1 byte gen, plus new byte
+            for(let j = 0; j < bin.arraysToCheckpoint.length; j++){
+                let addr_expr = new ir.Expr(1, null,(valueEncode(arrayAddrBegin + (j * arraylength))))
+                let val_expr = new ir.Expr(9, null, bin.arraysToCheckpoint[j])
+                let addrlength_expr = new ir.Expr(1, null, valueEncode(bufferAddrSize))
+                let write_array_expr = new ir.Expr(4,[addr_expr, val_expr, addrlength_expr], fram_writeArray_procid)
+                let arr_type_expr = new ir.Expr(1,null, valueEncode(1)) // for now all types will be number
+                let read_array_expr = new ir.Expr(4,[addr_expr, arr_type_expr, addrlength_expr],fram_readArray_procid)
+                let assign_read_array_expr = new ir.Expr(ir.EK.Store, [val_expr,read_array_expr],null)
+                let write_array_stmt = new ir.Stmt(1, write_array_expr)
+                let read_array_stmt = new ir.Stmt(1, assign_read_array_expr)
+                set_map.set(bin.arraysToCheckpoint[j].getName(),write_array_stmt)
+                get_map.set(bin.arraysToCheckpoint[j].getName(),read_array_stmt)
+            }
+
+            let stringAddrBegin = (arrayAddrBegin + (bin.arraysToCheckpoint.length * 100))
+            for(let i = 0; i < bin.stringsToCheckpoint.length; i++){
+                let addr_expr = new ir.Expr(1, null,(valueEncode(stringAddrBegin + (i * arraylength))))
+                let val_expr = new ir.Expr(9, null, bin.stringsToCheckpoint[i])
+                let addrlength_expr = new ir.Expr(1, null, valueEncode(bufferAddrSize))
+                let write_str_expr = new ir.Expr(4,[addr_expr, val_expr, addrlength_expr], fram_writeString_procid)
+                
+                let read_str_expr = new ir.Expr(4,[addr_expr, addrlength_expr],fram_readString_procid)
+                let assign_read_str_expr = new ir.Expr(ir.EK.Store, [val_expr,read_str_expr],null)
+                let write_str_stmt = new ir.Stmt(1, write_str_expr)
+                let read_str_stmt = new ir.Stmt(1, assign_read_str_expr)
+                set_map.set(bin.stringsToCheckpoint[i].getName(),write_str_stmt)
+                get_map.set(bin.stringsToCheckpoint[i].getName(),read_str_stmt)
+            }
+
+
+
 
             bin.setMap = set_map
             bin.getMap = get_map
@@ -1644,6 +1766,15 @@ namespace ts.pxtc {
             for(let varib of bin.varsToCheckpoint){
                 bin.mainStmts.push(get_map.get(varib.getName()))
             }
+            for(let bool_val of bin.boolsToCheckpoint){
+                bin.mainStmts.push(get_map.get(bool_val.getName()))
+            }
+            for(let arr of bin.arraysToCheckpoint){
+                bin.mainStmts.push(get_map.get(arr.getName()))
+            }
+            for(let str of bin.stringsToCheckpoint){
+                bin.mainStmts.push(get_map.get(str.getName()))
+            }
             bin.mainStmts.push(goto_stmt)
             bin.mainStmts.push(elselbl)
             bin.mainStmts.push(gen1_stmt)
@@ -1663,7 +1794,13 @@ namespace ts.pxtc {
         }
 
         function findModifications(){
+           
+
+
             for(let glb_var of bin.globals){
+
+                let t = typeOf(glb_var.def)
+                
                 if(glb_var._debugType == "number"){
                     let count = 0
                     //console.log(glb_var.getName())
@@ -1678,7 +1815,44 @@ namespace ts.pxtc {
                             }
                         }
                     }
-                    /*
+                    
+                    
+                    if(count > 1 ){
+                        glb_var.isModified = true
+                        if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "gencopy" && glb_var.getName() != "generation" && !glb_var.getName().includes("customMKArg")){
+                            bin.varsToCheckpoint.push(glb_var)
+                        }
+                        
+                    }
+                } else if(glb_var._debugType == "string"){
+                    if(glb_var.getName() != "NEW_LINE"){
+                        bin.stringsToCheckpoint.push(glb_var)
+                    }
+                    
+                } else if(isArrayType(t)){
+                    if(glb_var.getName() != "_intervals" && glb_var.getName() != "_pollEventQueue"){
+                        bin.arraysToCheckpoint.push(glb_var)
+                    }
+                } else if(isBooleanType(t)){
+                    bin.boolsToCheckpoint.push(glb_var)
+                }
+
+                /*
+                if(glb_var._debugType == "number"){
+                    let count = 0
+                    //console.log(glb_var.getName())
+                    for(let i = 0; i < bin.procs[0].body.length; i++){
+                        if(bin.procs[0].body[i].stmtKind == ir.SK.Expr){
+                            if(bin.procs[0].body[i].expr.exprKind == ir.EK.Store){
+                                //console.log(bin.procs[0].body[i].expr.args[0].data.getName(), glb_var.getName())
+                                if(bin.procs[0].body[i].expr.args[0].data.getName() == glb_var.getName()){
+                                    //console.log("found a match")
+                                    count++
+                                }
+                            }
+                        }
+                    }
+                    
                     for(let prc of bin.procs){
                         for(let body_statement of prc.body){
                             if(body_statement.stmtKind == 1){
@@ -1697,7 +1871,7 @@ namespace ts.pxtc {
                             }
                         }
                     }
-                    */
+                    
                     if(count > 1 ){
                         glb_var.isModified = true
                         if(glb_var.getName() != "timer" && glb_var.getName() != "weight" && glb_var.getName() != "jit" && glb_var.getName() != "gencopy" && glb_var.getName() != "generation" && !glb_var.getName().includes("customMKArg")){
@@ -1705,7 +1879,23 @@ namespace ts.pxtc {
                         }
                         
                     }
+                } else if(glb_var._debugType == "string"){
+                    console.log("String found!!!!!!!!!!!!!!!!!!!!")
+                } else if(glb_var._debugType == "?"){
+                    //console.log("Found a ????????")
+                    //console.log(glb_var.def)
+                    let t = typeOf(glb_var.def)
+                    if(isArrayType(t)){
+                        console.log("We found an Array")
+                        console.log(glb_var)
+                    }
+                    if(isBooleanType(t)){
+                        console.log("BOOOOOOLEAN")
+                        console.log(glb_var)
+                    }
+                    //bin.globals[3].def
                 }
+                */
                 
             }
             bin.varsToCheckpoint.push(bin.label_cell)
@@ -1749,41 +1939,39 @@ namespace ts.pxtc {
         }
 
         function mainBoilerplate(proc: ir.Procedure, start:number, end:number){
-            //boilerplate = 3
-            //num of vars = 6
-            //fram stuff = 3
-            //total = 12
+
+            // gets the spot where the restore should be placed. It gives this number to checkpoint(start looking here) and mainrestore(insert restore here)
+
+            let insertRestoreCount = (bin.varsToCheckpoint.length-1) + bin.arraysToCheckpoint.length + bin.boolsToCheckpoint.length + bin.stringsToCheckpoint.length
+            console.log("RestoreCount = ", insertRestoreCount)
+            let curCount = 0
             let i
-        
-            let emittedmainstmts = false
             for(i = start; i < end; i++){
+
                 
-                if(proc.body[i].stmtKind == 2){
-                    //console.log("found lbl in main at: "+ i)
-                    //SemitMainStmts(proc,i)
-                    emittedmainstmts = true
-                    //break
-
-                    //TEST
-
-                    return i
-                }
-                /* maybe just labels is better?
-                else if(proc.body[i].expr){
-                    if(proc.body[i].expr.exprKind == 3 || // proc.body[i].expr.exprKind == 4 ){
-                        console.log("found proc or runtime call in main at: "+ i)
-                        emitMainStmts(proc,i)
-                        emittedmainstmts = true
-                        break
+                if(proc.body[i].stmtKind == 2 || proc.body[i].stmtKind == 3){
+                    break
+                } else if(proc.body[i].stmtKind == 1){
+                    if(proc.body[i].expr.exprKind == ir.EK.Store){
+                        console.log("found store, " +proc.body[i].expr.args[0].data.getName())
+                        if(bin.setMap.has(proc.body[i].expr.args[0].data.getName())){
+                            curCount++
+                            console.log("CurCount = ",curCount)
+                            console.log("setmap size = ", (bin.setMap.size - 1))
+                            if(curCount >= bin.setMap.size - 1){
+                                i++
+                                break
+                            }
+                        }
                     }
                 }
-                */
+                
                 
                 
             }
             
 
-            return i+bin.mainStmts.length
+            return i
         }
 
         function mainRestore(proc: ir.Procedure, start:number, end:number){
@@ -1801,6 +1989,8 @@ namespace ts.pxtc {
             let j
 
             let label_cell_expr = new ir.Expr(9,null,bin.label_cell)
+
+            console.log("checklabel length", bin.checklabel.length)
 
             for(j = 0; j < bin.checklabel.length; j++){
                 
@@ -1861,32 +2051,11 @@ namespace ts.pxtc {
             bin.mainStmts.push(origelselbl)
             bin.mainStmts.push(gen1)
             bin.mainStmts.push(afterif)
-        
-            let emittedmainstmts = false
-            for(i = start; i < end; i++){
-                
-                if(proc.body[i].stmtKind == 2 || proc.body[i].stmtKind == 3){
-                    //console.log("found lbl in main at: "+ i)
-                    emitMainStmts(proc,i)
-                    emittedmainstmts = true
-                    break
-                }
-                /* maybe just labels is better?
-                else if(proc.body[i].expr){
-                    if(proc.body[i].expr.exprKind == 3 || // proc.body[i].expr.exprKind == 4 ){
-                        console.log("found proc or runtime call in main at: "+ i)
-                        emitMainStmts(proc,i)
-                        emittedmainstmts = true
-                        break
-                    }
-                }
-                */
-                
-                
-            }
+
+            emitMainStmts(proc,start)
             
 
-            return i+bin.mainStmts.length
+            return bin.mainStmts.length
         }
 
         function Checkpoint(proc: ir.Procedure, start:number, end:number, incominglblId:string){
@@ -1897,7 +2066,7 @@ namespace ts.pxtc {
 
             console.log(start, end)
 
-            while(1){
+            while(1){   
                 if(proc.body[i].stmtKind == ir.SK.Label){
                     if(proc.body[i].lblName.includes("final")){
                         console.log("found a final, leaving")
@@ -1916,8 +2085,21 @@ namespace ts.pxtc {
                         emit_stack.push(label_assign_stmt)
 
 
+                        // add vars
                         for(let i = 0; i < bin.varsToCheckpoint.length; i++){
                             emit_stack.push(bin.setMap.get(bin.varsToCheckpoint[i].getName()))
+                        }
+                        for(let i = 0; i < bin.boolsToCheckpoint.length; i++){
+                            emit_stack.push(bin.setMap.get(bin.boolsToCheckpoint[i].getName()))
+                        }
+                        // add arrays
+                        for(let i = 0; i < bin.arraysToCheckpoint.length; i++){
+                            emit_stack.push(bin.setMap.get(bin.arraysToCheckpoint[i].getName()))
+        
+                        }
+                        for(let i = 0; i < bin.stringsToCheckpoint.length; i++){
+                            emit_stack.push(bin.setMap.get(bin.stringsToCheckpoint[i].getName()))
+        
                         }
 
                         //console.log(bin.setMap)
@@ -2276,9 +2458,12 @@ namespace ts.pxtc {
             //need to find a way to make sure only the user program is transformmed
             console.log("proc name ",proc.getName())
             if(proc.getName() == "<main>"){
+                
                 let mainstart = mainBoilerplate(proc,0,proc.body.length)
-                console.log("mainstart = "+mainstart)
                 Checkpoint(proc, mainstart, proc.body.length-4,"")
+                mainRestore(proc,mainstart,proc.body.length)
+                console.log("mainstart = "+mainstart)
+                
             } else {
                 //Checkpoint(proc,0,proc.body.length-4,"")
             }
@@ -2292,7 +2477,7 @@ namespace ts.pxtc {
             //need to find a way to make sure only the user program is transformmed
             
             if(proc.getName() == "<main>"){
-                mainRestore(proc,0,proc.body.length)
+                //mainRestore(proc,0,proc.body.length)
             } 
             
 
@@ -2381,6 +2566,9 @@ namespace ts.pxtc {
             }
         }
 
+
+
+        
         
         function flatten(proc: ir.Procedure){
             for(let i = 0; i<proc.body.length; i++){
@@ -2399,6 +2587,8 @@ namespace ts.pxtc {
                             let inlineID = parseInt(inlineName.substring(inlineName.lastIndexOf("P")+1,inlineName.length))
                             console.log(inlineName, inlineID)
                             for(let p = 0; p < bin.procs.length; p++){
+
+                                console.log("about to flatten")
                                 
                                 if(bin.procs[p].action){
                                     if(bin.procs[p].action.pxt){
@@ -6693,7 +6883,10 @@ ${lbl}: .short 0xffff
         lblNo = 0;
 
         //my stuff
-        varsToCheckpoint: ir.Cell[] = [];
+        varsToCheckpoint: ir.Cell[] = []; // numbers only
+        arraysToCheckpoint: ir.Cell[] = [];
+        stringsToCheckpoint: ir.Cell[] = [];
+        boolsToCheckpoint: ir.Cell[] = [];
         saveBufferCell: ir.Cell;
         setMap: any;
         getMap: any;

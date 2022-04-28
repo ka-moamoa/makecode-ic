@@ -44,6 +44,7 @@ cd ..
 ```
 git clone https://github.com/microsoft/pxt-common-packages
 cd pxt-common-packages
+git checkout tags/v9.2.5
 npm install
 cd ..
 ```
@@ -51,6 +52,7 @@ cd ..
 ```
 git clone https://github.com/microsoft/pxt-microbit
 cd pxt-microbit
+git checkout tags/v4.1.5-34-g212c01f2
 ```
 6. Install PXT command line
 ```
@@ -60,22 +62,27 @@ npm install -g pxt
 ```
 npm install
 ```
-8. Link each pxt directory from the microbit directory
+8. Remove pre-installed pxt-core and common-packages from pxt-microbit/node_modules
 ```
-pxt link ../pxt
+rm -r pxt-microbit/node_modules/pxt-core
+rm -r pxt-microbit/node_modules/pxt-common-packages
+```
+9. Link each pxt directory from the microbit directory
+```
+pxt link ../IC_pxt
 pxt link ../pxt-common-packages
 ```
-9. Run the server
+10. Run the server
 ```
 pxt serve
 ```
-10. Click "import" and then "import url"
-11. Paste this github link https://github.com/chrispkraemer/fram-driver-iceberg
-12. Start a new project
-13. Add the fram driver as an extension by clicking on "Advanced" and then "Extensions"
-14. Click on the FRAM Driver local extension to add it to your MakeCode project
-15. Add `fram.init()` to the top of your program
-16. Begin coding
+11. Click "import" and then "import url"
+12. Paste this github link https://github.com/chrispkraemer/fram-driver-iceberg
+13. Start a new project
+14. Add the fram driver as an extension by clicking on "Advanced" and then "Extensions"
+15. Click on the FRAM Driver local extension to add it to your MakeCode project
+16. Add `fram.init()` to the top of your program
+17. Begin coding
 
 # Microsoft MakeCode
 
